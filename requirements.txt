@@ -1,0 +1,6 @@
+# requirements.txt
+flask
+numpy
+scipy
+requests
+python-dotenv

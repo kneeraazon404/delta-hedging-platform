@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delta Hedging API Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="bg-white shadow-md rounded-lg overflow-hidden">
+            <div class="bg-blue-600 text-white p-4">
+                <h1 class="text-2xl font-bold">Delta Hedging API Endpoints</h1>
+            </div>
+
+            <div class="p-6 space-y-6">
+                <!-- Positions Section -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-4">Positions Endpoints</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Create Position -->
+                        <div class="bg-white p-4 rounded-lg shadow-md">
+                            <h3 class="font-medium mb-2">Create Position</h3>
+                            <form id="createPositionForm" class="space-y-2">
+                                <input type="text" name="epic" placeholder="Epic" 
+                                    class="w-full p-2 border rounded" value="CS.D.EURUSD.TODAY.IP">
+                                <input type="number" name="strike" placeholder="Strike" 
+                                    class="w-full p-2 border rounded" step="0.0001" value="1.2000">
+                                <select name="option_type" class="w-full p-2 border rounded">
+                                    <option value="CALL">CALL</option>
+                                    <option value="PUT">PUT</option>
+                                </select>
+                                <input type="number" name="premium" placeholder="Premium" 
+                                    class="w-full p-2 border rounded" value="50">
+                                <input type="number" name="contracts" placeholder="Contracts" 
+                                    class="w-full p-2 border rounded" value="1">
+                                <input type="number" name="time_to_expiry" placeholder="Time to Expiry" 
+                                    class="w-full p-2 border rounded" step="0.0001" value="0.25">
+                                <button type="submit" 
+                                    class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">
+                                    Create Position
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- List Positions -->
+                        <div class="bg-white p-4 rounded-lg shadow-md">
+                            <h3 class="font-medium mb-2">List Positions</h3>
+                            <button id="listPositionsBtn" 
+                                class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">
+                                List Positions
+                            </button>
+                        </div>
+
+                        <!-- Get Specific Position -->
+                        <div class="bg-white p-4 rounded-lg shadow-md">
+                            <h3 class="font-medium mb-2">Get Position</h3>
+                            <input type="text" id="positionId" placeholder="Position ID" 
+                                class="w-full p-2 border rounded mb-2">
+                            <button id="getPositionBtn" 
+                                class="w-full bg-indigo-500 text-white p-2 rounded hover:bg-indigo-600">
+                                Get Position
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Market Data Section -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-4">Market Data Endpoints</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Get Market Data -->
+                        <div class="bg-white p-4 rounded-lg shadow-md">
+                            <h3 class="font-medium mb-2">Get Market Data</h3>
+                            <input type="text" id="marketDataPositionId" placeholder="Position ID" 
+                                class="w-full p-2 border rounded mb-2">
+                            <button id="getMarketDataBtn" 
+                                class="w-full bg-purple-500 text-white p-2 rounded hover:bg-purple-600">
+                                Get Market Data
+                            </button>
+                        </div>
+
+                        <!-- Hedge Endpoints -->
+                        <div class="bg-white p-4 rounded-lg shadow-md">
+                            <h3 class="font-medium mb-2">Hedge Position</h3>
+                            <input type="text" id="hedgePositionId" placeholder="Position ID" 
+                                class="w-full p-2 border rounded mb-2">
+                            <button id="hedgePositionBtn" 
+                                class="w-full bg-yellow-500 text-white p-2 rounded hover:bg-yellow-600">
+                                Hedge Position
+                            </button>
+                        </div>
+
+                        <!-- Hedge All Positions -->
+                        <div class="bg-white p-4 rounded-lg shadow-md">
+                            <h3 class="font-medium mb-2">Hedge All Positions</h3>
+                            <button id="hedgeAllPositionsBtn" 
+                                class="w-full bg-orange-500 text-white p-2 rounded hover:bg-orange-600">
+                                Hedge All Positions
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Additional Endpoints -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-4">Additional Endpoints</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Get Hedge Status -->
+                        <div class="bg-white p-4 rounded-lg shadow-md">
+                            <h3 class="font-medium mb-2">Get Hedge Status</h3>
+                            <button id="getHedgeStatusBtn" 
+                                class="w-full bg-teal-500 text-white p-2 rounded hover:bg-teal-600">
+                                Get Hedge Status
+                            </button>
+                        </div>
+
+                        <!-- Position History -->
+                        <div class="bg-white p-4 rounded-lg shadow-md">
+                            <h3 class="font-medium mb-2">Position History</h3>
+                            <input type="text" id="positionHistoryId" placeholder="Position ID" 
+                                class="w-full p-2 border rounded mb-2">
+                            <button id="getPositionHistoryBtn" 
+                                class="w-full bg-pink-500 text-white p-2 rounded hover:bg-pink-600">
+                                Get Position History
+                            </button>
+                        </div>
+
+                        <!-- Settings -->
+                        <div class="bg-white p-4 rounded-lg shadow-md">
+                            <h3 class="font-medium mb-2">Get/Update Settings</h3>
+                            <button id="getSettingsBtn" 
+                                class="w-full bg-gray-500 text-white p-2 rounded hover:bg-gray-600 mb-2">
+                                Get Settings
+                            </button>
+                            <button id="updateSettingsBtn" 
+                                class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600">
+                                Update Settings
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Response Display -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-4">API Response</h2>
+                    <pre id="responseDisplay" 
+                        class="bg-white p-4 rounded-lg overflow-x-auto border border-gray-200">
+                        Response will be displayed here...
+                    </pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BASE_URL = 'http://localhost:5000/api';
+        const responseDisplay = document.getElementById('responseDisplay');
+
+        // Utility function to display response
+        function displayResponse(data) {
+            responseDisplay.textContent = JSON.stringify(data, null, 2);
+        }
+
+        // Create Position
+        document.getElementById('createPositionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = Object.fromEntries(new FormData(e.target));
+            
+            // Convert numeric fields
+            ['strike', 'premium', 'contracts', 'time_to_expiry'].forEach(field => {
+                formData[field] = Number(formData[field]);
+            });
+
+            try {
+                const response = await axios.post(`${BASE_URL}/positions`, formData);
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+
+        // List Positions
+        document.getElementById('listPositionsBtn').addEventListener('click', async () => {
+            try {
+                const response = await axios.get(`${BASE_URL}/positions`);
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+
+        // Get Specific Position
+        document.getElementById('getPositionBtn').addEventListener('click', async () => {
+            const positionId = document.getElementById('positionId').value;
+            try {
+                const response = await axios.get(`${BASE_URL}/positions/${positionId}`);
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+
+        // Get Market Data
+        document.getElementById('getMarketDataBtn').addEventListener('click', async () => {
+            const positionId = document.getElementById('marketDataPositionId').value;
+            try {
+                const response = await axios.get(`${BASE_URL}/market-data/${positionId}`);
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+
+        // Hedge Position
+        document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
+            const positionId = document.getElementById('hedgePositionId').value;
+            try {
+                const response = await axios.post(`${BASE_URL}/hedge/${positionId}`, {});
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+
+        // Hedge All Positions
+        document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
+            try {
+                const response = await axios.post(`${BASE_URL}/hedge/all`, {});
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+
+        // Get Hedge Status
+        document.getElementById('getHedgeStatusBtn').addEventListener('click', async () => {
+            try {
+                const response = await axios.get(`${BASE_URL}/hedge/status`);
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+
+        // Get Position History
+        document.getElementById('getPositionHistoryBtn').addEventListener('click', async () => {
+            const positionId = document.getElementById('positionHistoryId').value;
+            try {
+                const response = await axios.get(`${BASE_URL}/positions/${positionId}/history`);
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+
+        // Get Settings
+        document.getElementById('getSettingsBtn').addEventListener('click', async () => {
+            try {
+                const response = await axios.get(`${BASE_URL}/settings`);
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+
+        // Update Settings (simplified example)
+        document.getElementById('updateSettingsBtn').addEventListener('click', async () => {
+            try {
+                const settingsUpdate = {
+                    min_hedge_size: 0.02,
+                    max_hedge_size: 50.0,
+                    hedge_interval: 120
+                };
+                const response = await axios.post(`${BASE_URL}/settings`, settingsUpdate);
+                displayResponse(response.data);
+            } catch (error) {
+                displayResponse(error.response?.data || error.message);
+            }
+        });
+    </script>
+</body>
+</html>
