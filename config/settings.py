@@ -6,4 +6,5 @@ HEDGE_SETTINGS = {
     "default_rate": 0.05,  # Risk-free rate
     "min_volatility": 0.001,
     "max_volatility": 2.0,
+    "username": "Z5TMXZ",
 }
