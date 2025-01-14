@@ -6,7 +6,7 @@ from app import app
 
 if __name__ == "__main__":
     logging.basicConfig(
-        filename="delta_hedger.log",
+        filename="logs/delta_hedger.log",
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
