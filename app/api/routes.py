@@ -2,7 +2,7 @@
 import logging
 from datetime import datetime
 
-from flask import jsonify, request
+from flask import jsonify, render_template, request
 
 from app import app
 from app.core.delta_hedger import DeltaHedger
@@ -12,6 +12,11 @@ from config.settings import HEDGE_SETTINGS as _hedge_settings
 # Initialize clients
 ig_client = IGClient(use_mock=True)
 hedger = DeltaHedger(ig_client)
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
 
 
 # Create API endpoints
