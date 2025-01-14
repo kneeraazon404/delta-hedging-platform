@@ -6,6 +6,30 @@
     <title>Delta Hedging API Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        #responseDisplay {
+            height: calc(100vh - 200px);
+            overflow-y: auto;
+            padding: 1rem;
+        }
+        
+        .response-item {
+            position: relative;
+            margin-bottom: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .response-content {
+            max-height: none;
+            overflow: visible;
+        }
+        
+        .response-content pre {
+            background: #f8fafc;
+            padding: 1rem;
+            border-radius: 0.375rem;
+        }
+        </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
     <div class="container mx-auto px-4 py-8">
@@ -74,19 +98,49 @@
             </div>
         </div>
     </div>
-
     <script>
-        const BASE_URL = 'http://localhost:8000/api';
+        BASE_URL = 'http://localhost:8000/api';
         const responseDisplay = document.getElementById('responseDisplay');
-
+        let isLoading = false;
+        
+        function showLoading() {
+            const loader = document.createElement('div');
+            loader.className = 'loading-indicator p-4 bg-blue-50 border rounded mb-4';
+            loader.innerHTML = 'Loading...';
+            responseDisplay.insertBefore(loader, responseDisplay.firstChild);
+            return loader;
+        }
+        
+        async function makeApiCall(url, options = {}) {
+            if (isLoading) return;
+            isLoading = true;
+            const loader = showLoading();
+            
+            try {
+                const response = await axios({ url: `${BASE_URL}${url}`, ...options });
+                loader.remove();
+                displayResponse(response.data);
+                return response.data;
+            } catch (error) {
+                loader.remove();
+                displayResponse({
+                    error: true,
+                    message: error.response?.data?.error || error.message,
+                    timestamp: new Date().toISOString()
+                });
+            } finally {
+                isLoading = false;
+            }
+        }
         function displayResponse(data) {
             const timestamp = new Date().toLocaleTimeString();
             responseDisplay.innerHTML = `
-                <div class="text-sm text-gray-500 mb-2">Response at ${timestamp}:</div>
-                <pre class="whitespace-pre-wrap">${JSON.stringify(data, null, 2)}</pre>
+                <div class="p-4 border rounded bg-white">
+                    <div class="text-sm text-gray-600 mb-2">${timestamp}</div>
+                    <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${JSON.stringify(data, null, 2)}</pre>
+                </div>
             `;
         }
-
         // Create Position
         document.getElementById('createPositionForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -94,107 +148,61 @@
             ['strike', 'premium', 'contracts', 'time_to_expiry'].forEach(field => {
                 formData[field] = Number(formData[field]);
             });
-            try {
-                const response = await axios.post(`${BASE_URL}/positions`, formData);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            await makeApiCall('/positions', { method: 'POST', data: formData });
         });
-
+     
         // List Positions
         document.getElementById('listPositionsBtn').addEventListener('click', async () => {
-            try {
-                const response = await axios.get(`${BASE_URL}/positions`);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            await makeApiCall('/positions');
         });
-
+     
         // Get Position
         document.getElementById('getPositionBtn').addEventListener('click', async () => {
             const positionId = document.getElementById('positionId').value;
-            try {
-                const response = await axios.get(`${BASE_URL}/positions/${positionId}`);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            await makeApiCall(`/positions/${positionId}`);
         });
-
-        // Market Data and Hedging Endpoints
+     
+        // Market Data
         document.getElementById('getMarketDataBtn').addEventListener('click', async () => {
             const positionId = document.getElementById('marketDataPositionId').value;
-            try {
-                const response = await axios.get(`${BASE_URL}/market-data/${positionId}`);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            await makeApiCall(`/market-data/${positionId}`);
         });
-
+     
+        // Hedge Position
         document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
             const positionId = document.getElementById('marketDataPositionId').value;
-            try {
-                const response = await axios.post(`${BASE_URL}/hedge/${positionId}`);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            await makeApiCall(`/hedge/${positionId}`, { method: 'POST' });
         });
-
+     
+        // Hedge All Positions
         document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
-            try {
-                const response = await axios.post(`${BASE_URL}/hedge/all`);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            await makeApiCall('/hedge/all', { method: 'POST' });
         });
-
-        // Additional Endpoints
+     
+        // Get Hedge Status
         document.getElementById('getHedgeStatusBtn').addEventListener('click', async () => {
-            try {
-                const response = await axios.get(`${BASE_URL}/hedge/status`);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            await makeApiCall('/hedge/status');
         });
-
+     
+        // Position History
         document.getElementById('getPositionHistoryBtn').addEventListener('click', async () => {
             const positionId = document.getElementById('positionHistoryId').value;
-            try {
-                const response = await axios.get(`${BASE_URL}/positions/${positionId}/history`);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            await makeApiCall(`/positions/${positionId}/history`);
         });
-
+     
+        // Settings
         document.getElementById('getSettingsBtn').addEventListener('click', async () => {
-            try {
-                const response = await axios.get(`${BASE_URL}/settings`);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            await makeApiCall('/settings');
         });
-
+     
         document.getElementById('updateSettingsBtn').addEventListener('click', async () => {
-            try {
-                const settingsUpdate = {
-                    min_hedge_size: 0.02,
-                    max_hedge_size: 50.0,
-                    hedge_interval: 120
-                };
-                const response = await axios.post(`${BASE_URL}/settings`, settingsUpdate);
-                displayResponse(response.data);
-            } catch (error) {
-                displayResponse(error.response?.data || error.message);
-            }
+            const settingsUpdate = {
+                min_hedge_size: 0.02,
+                max_hedge_size: 50.0,
+                hedge_interval: 120
+            };
+            await makeApiCall('/settings', { method: 'POST', data: settingsUpdate });
         });
-    </script>
+     </script>
 </body>
 </html>
