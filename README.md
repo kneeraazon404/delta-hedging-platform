@@ -4,7 +4,7 @@
 
 The Delta Hedging Automation Platform is a sophisticated financial tool designed to manage and hedge option positions dynamically using the Black-Scholes option pricing model. This project provides an end-to-end solution for creating, monitoring, and hedging financial derivatives with intelligent risk management.
 
-![Project Architecture](https://img.shields.io/badge/Architecture-Flask%20%7C%20Vue%20%7C%20Axios-blue)
+![Project Architecture](https://img.shields.io/badge/Architecture-Flask%20%7C%20JavaScript%20%7C%20Axios-blue)
 ![Python Version](https://img.shields.io/badge/Python-3.8%2B-green)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
@@ -51,7 +51,7 @@ pip install -r requirements.txt
 IG_API_KEY=your_ig_api_key
 IG_USERNAME=your_username
 IG_PASSWORD=your_password
-IG_ACC_TYPE=DEMO
+IG_ACC_TYPE=DEMO/LIVE
 ```
 
 ## 🎬 Running the Application
@@ -69,7 +69,7 @@ Open the `index.html` file in a modern web browser.
 
 ## 🧰 Technologies Used
 
-- **Backend**: 
+- **Backend**:
 
   - Flask
   - NumPy
@@ -150,8 +150,6 @@ Distributed under the MIT License. See `LICENSE` for more information.
 ## 📞 Contact
 
 Nirajan Karki - <kneeraazon@gmail.com>
-
-Project Link: [https://github.com/kneeraazon404/delta-hedging-platform](https://github.com/yourusername/delta-hedging-platform)
 
 ---
 
