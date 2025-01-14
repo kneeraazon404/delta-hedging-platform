@@ -2,8 +2,6 @@
 import logging
 import os
 
-from flask import Flask, render_template
-
 from app import app
 
 if __name__ == "__main__":
