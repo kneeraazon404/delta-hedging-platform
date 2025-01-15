@@ -134,8 +134,8 @@ class IGClient:
 
     def get_market_data(self, epic: str) -> Dict:
         """Get market data with mock fallback"""
-        if self.use_mock:
-            return self.mock_data.get_market_data()
+        # if self.use_mock:
+        #     return self.mock_data.get_market_data()
 
         try:
             self._rate_limit()
@@ -291,10 +291,15 @@ class IGClient:
 
     def get_underlying_epic(self, option_name: str) -> str:
         """Get underlying market epic from option name"""
-        if "Wall Street" in option_name:
-            return "IX.D.DOW.IFD.IP"  # DOW epic
-        elif "US Tech 100" in option_name:
-            return "IX.D.NASDAQ.IFD.IP"  # NASDAQ epic
+        name_parts = option_name.split()
+
+        if "Daily" in name_parts:
+            # Extract the underlying name and construct the epic
+            underlying_name = " ".join(
+                name_parts[1:-2]
+            )  # Exclude "Daily" and strike/PUT/CALL
+            epic = f"IX.D.{underlying_name.replace(' ', '_').upper()}.IFD.IP"
+            return epic
         else:
             raise ValueError(f"Unknown underlying for option: {option_name}")
 
