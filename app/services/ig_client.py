@@ -166,8 +166,8 @@ class IGClient:
         """
         Get positions from IG API with proper error handling.
         """
-        # if self.use_mock:
-        #     return {"positions": []}  # Return empty positions list when using mock data
+        if self.use_mock:
+            return {"positions": []}  # Return empty positions list when using mock data
 
         try:
             # Step 1: Get positions
@@ -216,12 +216,22 @@ class IGClient:
             try:
                 position_info = pos["position"]
                 market_info = pos["market"]
-
                 # Extract option details
                 instrument_name = market_info["instrumentName"]
                 name_parts = instrument_name.split()
-                strike = float(name_parts[-2])  # Extract strike from name
-                option_type = "PUT" if "PUT" in instrument_name else "CALL"
+
+                if name_parts[-1] in ["PUT", "CALL"]:
+                    option_type = name_parts[-1]
+                    try:
+                        strike = float(name_parts[-2])  # Extract strike from name
+                    except ValueError:
+                        raise ValueError(
+                            f"Invalid strike price in instrument name: {instrument_name}"
+                        )
+                else:
+                    raise ValueError(
+                        f"Invalid instrument name format: {instrument_name}"
+                    )
 
                 # Get underlying epic
                 underlying_epic = self.get_underlying_epic(instrument_name)
