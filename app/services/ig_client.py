@@ -12,6 +12,8 @@ from app.models.enums import OrderDirection, OrderType
 from app.services.mock_market import MockMarketData
 from config.settings import HEDGE_SETTINGS as _hedge_settings
 
+load_dotenv()
+
 
 class IGClient:
     def __init__(self, use_mock: bool = True):
@@ -26,7 +28,6 @@ class IGClient:
         self.last_request_time = 0
         self.use_mock = use_mock
         self.mock_data = MockMarketData()
-
         if not use_mock:
             self.login()
 
@@ -161,6 +162,102 @@ class IGClient:
             logging.error(f"Market data error: {str(e)}, using mock data")
             return self.mock_data.get_market_data()
 
+    def get_positions(self) -> Dict:
+        """
+        Get positions from IG API with proper error handling.
+        """
+        # if self.use_mock:
+        #     return {"positions": []}  # Return empty positions list when using mock data
+
+        try:
+            # Step 1: Get positions
+            position_headers = self.get_headers(version="2")
+
+            position_response = self.session.get(
+                f"{self.base_url}/positions", headers=position_headers, timeout=30
+            )
+            position_response.raise_for_status()
+
+            positions_data = position_response.json()
+
+            # Step 2: Get detailed position information for each position
+            for position in positions_data.get("positions", []):
+                deal_id = position["position"]["dealId"]
+                position_details = self.session.get(
+                    f"{self.base_url}/positions/{deal_id}",
+                    headers=position_headers,
+                    timeout=30,
+                )
+                if position_details.status_code == 200:
+                    position["details"] = position_details.json()
+
+            return positions_data
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"API request failed: {str(e)}")
+            return {"error": f"API request failed: {str(e)}"}
+
+    def _calculate_time_to_expiry(self, expiry_str: str) -> float:
+        """Calculate time to expiry in years"""
+        try:
+            expiry_date = datetime.strptime(expiry_str, "%d-%b-%y")
+            days_to_expiry = (expiry_date - datetime.now()).days
+            return max(
+                days_to_expiry / 365, 0.0001
+            )  # Minimum 0.0001 to avoid division by zero
+        except Exception as e:
+            logging.error(f"Error calculating time to expiry: {str(e)}")
+            return 0.25  # Default to 3 months if calculation fails
+
+    def parse_position_data(self, position_data: Dict) -> Dict:
+        """Parse and extract relevant information from position data."""
+        positions = []
+        for pos in position_data.get("positions", []):
+            try:
+                position_info = pos["position"]
+                market_info = pos["market"]
+
+                # Extract option details
+                instrument_name = market_info["instrumentName"]
+                name_parts = instrument_name.split()
+                strike = float(name_parts[-2])  # Extract strike from name
+                option_type = "PUT" if "PUT" in instrument_name else "CALL"
+
+                # Get underlying epic
+                underlying_epic = self.get_underlying_epic(instrument_name)
+
+                # Calculate premium
+                size = float(position_info["size"])
+                level = float(position_info["level"])
+                premium = size * level
+
+                parsed_position = {
+                    "deal_id": position_info["dealId"],
+                    "size": size,
+                    "direction": position_info["direction"],
+                    "level": level,
+                    "premium": premium,
+                    "currency": position_info["currency"],
+                    "instrument_name": instrument_name,
+                    "underlying_epic": underlying_epic,
+                    "strike": strike,
+                    "option_type": option_type,
+                    "expiry": market_info["expiry"],
+                    "current_bid": float(market_info["bid"]),
+                    "current_offer": float(market_info["offer"]),
+                    "market_status": market_info["marketStatus"],
+                    "time_to_expiry": self._calculate_time_to_expiry(
+                        market_info["expiry"]
+                    ),
+                }
+                positions.append(parsed_position)
+
+            except KeyError as e:
+                logging.error(f"Error parsing position data: {str(e)}")
+                continue
+
+        return {"positions": positions}
+
     def create_position(
         self,
         direction: OrderDirection,
@@ -192,6 +289,15 @@ class IGClient:
             logging.error(f"Position creation error: {str(e)}")
             raise
 
+    def get_underlying_epic(self, option_name: str) -> str:
+        """Get underlying market epic from option name"""
+        if "Wall Street" in option_name:
+            return "IX.D.DOW.IFD.IP"  # DOW epic
+        elif "US Tech 100" in option_name:
+            return "IX.D.NASDAQ.IFD.IP"  # NASDAQ epic
+        else:
+            raise ValueError(f"Unknown underlying for option: {option_name}")
+
     def close_position(self, deal_id: str, direction: OrderDirection) -> Dict:
         """Close a position"""
         try:
@@ -211,4 +317,55 @@ class IGClient:
 
         except Exception as e:
             logging.error(f"Position closure error: {str(e)}")
+            raise
+
+    def get_underlying_data(self, underlying_epic: str) -> Dict:
+        """Get market data for underlying asset"""
+        try:
+            if self.use_mock:
+                return self.mock_data.get_market_data()
+
+            self._rate_limit()
+            response = self.session.get(
+                f"{self.base_url}/markets/{underlying_epic}",
+                headers=self.get_headers(version="3"),
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                snapshot = data.get("snapshot", {})
+                return {
+                    "bid": float(snapshot.get("bid", 0)),
+                    "offer": float(snapshot.get("offer", 0)),
+                    "high": float(snapshot.get("high", 0)),
+                    "low": float(snapshot.get("low", 0)),
+                    "update_time": snapshot.get("updateTime"),
+                    "volatility": max(
+                        0.001, abs(float(snapshot.get("percentageChange", 0.1)) / 100)
+                    ),
+                }
+            else:
+                logging.warning(f"Failed to get underlying data, using mock data")
+                return self.mock_data.get_market_data()
+
+        except Exception as e:
+            logging.error(f"Error getting underlying data: {str(e)}")
+            return self.mock_data.get_market_data()
+
+    def create_hedge_position(
+        self,
+        underlying_epic: str,
+        size: float,
+        direction: OrderDirection,
+    ) -> Dict:
+        """Create a hedge position in the underlying"""
+        try:
+            return self.create_position(
+                direction=direction,
+                epic=underlying_epic,
+                size=size,
+                order_type=OrderType.MARKET,
+            )
+        except Exception as e:
+            logging.error(f"Error creating hedge position: {str(e)}")
             raise

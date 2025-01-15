@@ -251,6 +251,70 @@ class IGClient:
             logging.error(f"Position closure error: {str(e)}")
             raise
 
+    def get_positions(self) -> Dict:
+        """
+        Get positions from IG API with proper error handling.
+        """
+        # if self.use_mock:
+        #     return {"positions": []}  # Return empty positions list when using mock data
+
+        try:
+            # Step 1: Get positions
+            position_headers = self.get_headers(version="2")
+
+            position_response = self.session.get(
+                f"{self.base_url}/positions", headers=position_headers, timeout=30
+            )
+            position_response.raise_for_status()
+
+            positions_data = position_response.json()
+
+            # Step 2: Get detailed position information for each position
+            for position in positions_data.get("positions", []):
+                deal_id = position["position"]["dealId"]
+                position_details = self.session.get(
+                    f"{self.base_url}/positions/{deal_id}",
+                    headers=position_headers,
+                    timeout=300,
+                )
+                if position_details.status_code == 200:
+                    position["details"] = position_details.json()
+
+            return positions_data
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"API request failed: {str(e)}")
+            return {"error": f"API request failed: {str(e)}"}
+
+    def parse_position_data(self, position_data: Dict) -> Dict:
+        """
+        Parse and extract relevant information from position data.
+        """
+        positions = []
+        for pos in position_data.get("positions", []):
+            try:
+                position_info = pos["position"]
+                market_info = pos["market"]
+
+                parsed_position = {
+                    "deal_id": position_info["dealId"],
+                    "size": position_info["size"],
+                    "direction": position_info["direction"],
+                    "level": position_info["level"],
+                    "currency": position_info["currency"],
+                    "instrument_name": market_info["instrumentName"],
+                    "expiry": market_info["expiry"],
+                    "current_bid": market_info["bid"],
+                    "current_offer": market_info["offer"],
+                    "market_status": market_info["marketStatus"],
+                }
+                positions.append(parsed_position)
+            except KeyError as e:
+                logging.error(f"Error parsing position data: {str(e)}")
+                continue
+
+        return {"positions": positions}
+
 
 class HedgeRecord:
     def __init__(self, delta: float, hedge_size: float, price: float, pnl: float):
@@ -451,6 +515,8 @@ class DeltaHedger:
 
     def list_positions(self) -> Dict[str, Dict]:
         """List all positions with their details"""
+        print("List positions")
+
         return {pid: pos.to_dict() for pid, pos in self.positions.items()}
 
     def _validate_position_data(self, data: Dict):
@@ -648,7 +714,7 @@ def get_position(position_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/positions", methods=["GET"])
+@app.route("/api/positionsss", methods=["GET"])
 def list_positions():
     """List all positions with proper error handling"""
     try:
@@ -674,6 +740,22 @@ def list_positions():
         return jsonify({"positions": positions_with_status, "count": len(positions)})
     except Exception as e:
         logging.error(f"Error listing positions: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/positions", methods=["GET"])
+def get_ig_positions():
+    """Get all positions from IG Trading"""
+    try:
+        positions_data = hedger.ig_client.get_positions()
+        if "error" in positions_data:
+            return jsonify(positions_data), 400
+
+        parsed_data = hedger.ig_client.parse_position_data(positions_data)
+        return jsonify(parsed_data)
+
+    except Exception as e:
+        logging.error(f"Error getting IG positions: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -873,4 +955,4 @@ hedger = DeltaHedger(ig_client)
 logging.info("Application initialized with mock market data")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))

@@ -15,89 +15,62 @@ class DeltaHedger:
     def __init__(self, ig_client: IGClient):
         self.ig_client = ig_client
         self.calculator = OptionCalculator()
-        # Store positions in instance variable instead of global
         self.positions: Dict[str, Position] = {}
         self.min_hedge_size = _hedge_settings["min_hedge_size"]
         self.max_hedge_size = _hedge_settings["max_hedge_size"]
         self.hedge_interval = _hedge_settings["hedge_interval"]
 
-    def create_position(self, data: Dict) -> str:
-        """Create a new position with proper validation"""
-        try:
-            # Validate required fields
-            required_fields = [
-                "epic",
-                "strike",
-                "option_type",
-                "premium",
-                "contracts",
-                "time_to_expiry",
-            ]
-            if not all(field in data for field in required_fields):
-                raise ValueError(
-                    f"Missing required fields. Required: {required_fields}"
-                )
-
-            # Create position
-            position_id = str(int(time.time()))
-            position = Position(data)
-
-            # Store in instance dictionary
-            self.positions[position_id] = position
-
-            logging.info(f"Created position {position_id}: {data}")
-            logging.info(f"Total positions: {len(self.positions)}")
-
-            return position_id
-        except Exception as e:
-            logging.error(f"Position creation error: {str(e)}")
-            raise
-
     def get_position(self, position_id: str) -> Optional[Position]:
-        """Get position by ID with proper logging"""
-        position = self.positions.get(position_id)
-        if position:
-            logging.info(f"Retrieved position {position_id}")
-        else:
-            logging.error(
-                f"Position {position_id} not found. Available positions: {list(self.positions.keys())}"
-            )
-        return position
-
-    def list_positions(self) -> Dict[str, Dict]:
-        """List all positions with their details"""
-        return {pid: pos.to_dict() for pid, pos in self.positions.items()}
-
-    def _validate_position_data(self, data: Dict):
-        """Validate position creation data"""
-        required_fields = [
-            "epic",
-            "strike",
-            "option_type",
-            "premium",
-            "contracts",
-            "time_to_expiry",
-        ]
-        if not all(field in data for field in required_fields):
-            raise ValueError(f"Missing required fields. Required: {required_fields}")
-
+        """Get position by ID with proper validation"""
         try:
-            OptionType(data["option_type"].upper())
-        except ValueError:
-            raise ValueError("Invalid option_type. Must be 'CALL' or 'PUT'")
+            position = self.positions.get(position_id)
+            if position:
+                logging.info(f"Retrieved position {position_id}")
+                return position
 
-    def calculate_pnl(self, position: Position, current_price: float) -> float:
-        """Calculate position PnL"""
-        try:
-            option_value = (
-                max(0, current_price - position.strike)
-                if position.option_type == OptionType.CALL
-                else max(0, position.strike - current_price)
-            )
-            return position.premium - (option_value * position.contracts)
+            # If not in local cache, check IG positions
+            positions_data = self.ig_client.get_positions()
+            parsed_data = self.ig_client.parse_position_data(positions_data)
+
+            for pos in parsed_data.get("positions", []):
+                if pos["deal_id"] == position_id:
+                    # Create new Position object
+                    position = Position(pos)
+                    self.positions[position_id] = position
+                    return position
+
+            logging.error(f"Position {position_id} not found")
+            return None
+
         except Exception as e:
-            logging.error(f"PnL calculation error: {str(e)}")
-            raise
+            logging.error(f"Error getting position {position_id}: {str(e)}")
+        return None
+
+    def monitor_positions(self) -> Dict:
+        """Monitor all positions for hedging needs"""
+        try:
+            # Get all positions from IG
+            positions_data = self.ig_client.get_positions()
+            parsed_data = self.ig_client.parse_position_data(positions_data)
+
+            results = {}
+            for position in parsed_data["positions"]:
+                if position["direction"] == "SELL":  # Only hedge sold positions
+                    position_id = position["deal_id"]
+
+                    # Create or update position object
+                    if position_id not in self.positions:
+                        self.positions[position_id] = Position(position)
+
+                    # Check if hedging is needed
+                    result = self.hedge_position(position_id)
+                    results[position_id] = result
+
+            return {"results": results}
+
+        except Exception as e:
+            logging.error(f"Error monitoring positions: {str(e)}")
+            return {"error": str(e)}
 
     def hedge_position(self, position_id: str) -> Dict:
         """Hedge a specific position"""
@@ -106,96 +79,119 @@ class DeltaHedger:
             return {"error": "Position not found or inactive"}
 
         try:
-            market_data = self.ig_client.get_market_data(position.epic)
-            position.last_market_data = market_data  # type: ignore
-            current_price = market_data["price"]
+            # Get underlying market data
+            underlying_data = self.ig_client.get_underlying_data(
+                position.underlying_epic  # type: ignore
+            )
+            current_price = (underlying_data["bid"] + underlying_data["offer"]) / 2
+            volatility = underlying_data["volatility"]
 
-            # Update time to expiry
-            time_now = datetime.now()
-            created_at = datetime.fromisoformat(position.created_at)
-            remaining_time = position.time_to_expiry - (
-                time_now - created_at
-            ).total_seconds() / (365 * 24 * 60 * 60)
-
-            if remaining_time <= 0:
+            # Check if position is expired
+            if position.time_to_expiry <= 0:
                 position.is_active = False
                 return {"error": "Position expired", "position_id": position_id}
 
             # Calculate PnL
             pnl = self.calculate_pnl(position, current_price)
 
-            # Check if hedging is needed
-            if pnl <= -position.premium:
-                position.pnl_threshold_crossed = True
-
-                # Calculate delta
-                delta = self.calculator.calculate_delta(
+            # Check if hedging is needed based on PnL threshold
+            if position.needs_hedge(pnl):
+                # Calculate Greeks
+                greeks = self.calculator.calculate_greeks(
                     current_price,
                     position.strike,
-                    remaining_time,
-                    market_data["volatility"],
+                    position.time_to_expiry,
+                    volatility,
                     position.option_type,
                 )
 
-                # Calculate hedge size
-                target_hedge = max(
+                # Calculate required hedge size
+                target_hedge = self.calculator.calculate_hedge_size(
+                    greeks["delta"],
+                    position.contracts,
                     self.min_hedge_size,
-                    min(self.max_hedge_size, abs(-delta * position.contracts)),
+                    self.max_hedge_size,
                 )
 
-                hedge_adjustment = target_hedge - position.hedge_size
+                # Get hedge direction
+                hedge_direction = position.get_hedge_direction(target_hedge)
 
-                # Execute hedge if adjustment is significant
-                if abs(hedge_adjustment) >= self.min_hedge_size:
-                    direction = (
-                        OrderDirection.BUY
-                        if hedge_adjustment > 0
-                        else OrderDirection.SELL
+                if hedge_direction:
+                    # Execute hedge
+                    result = self.ig_client.create_hedge_position(
+                        underlying_epic=position.underlying_epic,  # type: ignore
+                        size=abs(target_hedge - position.hedge_size),
+                        direction=hedge_direction,
                     )
-                    result = self.ig_client.create_position(
-                        direction=direction,
-                        epic=position.epic,
-                        size=abs(hedge_adjustment),
-                    )
-                    position.deal_id = result.get("dealId")
 
-                    # Record hedge
-                    position.add_hedge_record(delta, target_hedge, current_price, pnl)
+                    # Update position state
+                    position.update_hedge_state(result.get("dealId"))
+                    position.add_hedge_record(
+                        greeks["delta"], target_hedge, current_price, pnl
+                    )
 
                     return {
                         "position_id": position_id,
-                        "hedge_adjustment": hedge_adjustment,
-                        "new_hedge_size": target_hedge,
+                        "action": "hedged",
+                        "hedge_size": target_hedge,
                         "current_pnl": pnl,
-                        "time_remaining": remaining_time,
-                        "delta": delta,
-                        "deal_id": position.deal_id,
+                        "greeks": greeks,
+                        "deal_id": result.get("dealId"),
                     }
 
+            # Remove hedge if PnL improves
             elif pnl > -position.premium and position.pnl_threshold_crossed:
-                position.pnl_threshold_crossed = False
-                logging.info(f"Position {position_id} - PnL improved above threshold")
-
-                # Close hedge position if exists
-                if position.deal_id:
+                if position.hedge_deal_id:
+                    # Close hedge position
                     self.ig_client.close_position(
-                        position.deal_id,
+                        position.hedge_deal_id,
                         (
                             OrderDirection.SELL
                             if position.hedge_size > 0
                             else OrderDirection.BUY
                         ),
                     )
-                    position.deal_id = None
-                    position.hedge_size = 0
+                    position.update_hedge_state(None)
+
+                return {
+                    "position_id": position_id,
+                    "action": "hedge_removed",
+                    "current_pnl": pnl,
+                }
 
             return {
-                "message": "No hedge needed",
-                "current_pnl": pnl,
-                "time_remaining": remaining_time,
                 "position_id": position_id,
+                "action": "no_action",
+                "current_pnl": pnl,
+                "needs_hedge": position.needs_hedge(pnl),
             }
 
         except Exception as e:
             logging.error(f"Hedging error for position {position_id}: {str(e)}")
             return {"error": str(e)}
+
+    def calculate_pnl(self, position: Position, current_price: float) -> float:
+        """Calculate position PnL taking into account hedge positions"""
+        try:
+            # Calculate option value
+            option_value = (
+                max(0, current_price - position.strike)
+                if position.option_type == OptionType.CALL
+                else max(0, position.strike - current_price)
+            )
+
+            # Calculate PnL from option
+            option_pnl = position.premium - (option_value * position.contracts)
+
+            # Add PnL from hedge if exists
+            if position.hedge_size > 0:
+                last_hedge = position.get_last_hedge()
+                if last_hedge:
+                    hedge_pnl = position.hedge_size * (current_price - last_hedge.price)
+                    option_pnl += hedge_pnl
+
+            return option_pnl
+
+        except Exception as e:
+            logging.error(f"PnL calculation error: {str(e)}")
+            raise

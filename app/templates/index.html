@@ -29,7 +29,7 @@
             padding: 1rem;
             border-radius: 0.375rem;
         }
-        </style>
+    </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
     <div class="container mx-auto px-4 py-8">
@@ -41,47 +41,45 @@
             <div class="flex flex-row p-6 gap-6">
                 <!-- Left Column - Controls -->
                 <div class="w-5/12 space-y-6">
-                    <!-- Positions Section -->
+                    <!-- Position Management -->
                     <div class="bg-gray-50 p-4 rounded-lg">
-                        <h2 class="text-xl font-semibold mb-4">Positions</h2>
-                        <form id="createPositionForm" class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <input type="text" name="epic" placeholder="Epic" class="w-full p-2 border rounded" value="CS.D.EURUSD.TODAY.IP">
-                            <input type="number" name="strike" placeholder="Strike" class="w-full p-2 border rounded" step="0.0001" value="1.2000">
-                            <select name="option_type" class="w-full p-2 border rounded">
-                                <option value="CALL">CALL</option>
-                                <option value="PUT">PUT</option>
-                            </select>
-                            <input type="number" name="premium" placeholder="Premium" class="w-full p-2 border rounded" value="50">
-                            <input type="number" name="contracts" placeholder="Contracts" class="w-full p-2 border rounded" value="1">
-                            <input type="number" name="time_to_expiry" placeholder="Time to Expiry" class="w-full p-2 border rounded" step="0.0001" value="0.25">
-                            <button type="submit" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Create Position</button>
-                        </form>
-
-                        <div class="bg-white p-4 rounded-lg shadow-md mt-4 space-y-2">
-                            <button id="listPositionsBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">List Positions</button>
+                        <h2 class="text-xl font-semibold mb-4">Position Management</h2>
+                        <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
+                            <button id="listPositionsBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">List All Positions</button>
+                            <button id="getSoldPositionsBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Get Sold Positions</button>
                             <input type="text" id="positionId" placeholder="Position ID" class="w-full p-2 border rounded">
-                            <button id="getPositionBtn" class="w-full bg-indigo-500 text-white p-2 rounded hover:bg-indigo-600">Get Position</button>
+                            <button id="getPositionBtn" class="w-full bg-indigo-500 text-white p-2 rounded hover:bg-indigo-600">Get Position Details</button>
                         </div>
                     </div>
 
-                    <!-- Market Data Section -->
+                    <!-- Delta Hedging Monitor -->
                     <div class="bg-gray-50 p-4 rounded-lg">
-                        <h2 class="text-xl font-semibold mb-4">Market Data & Hedging</h2>
+                        <h2 class="text-xl font-semibold mb-4">Delta Hedging Monitor</h2>
                         <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <input type="text" id="marketDataPositionId" placeholder="Position ID" class="w-full p-2 border rounded">
-                            <button id="getMarketDataBtn" class="w-full bg-purple-500 text-white p-2 rounded hover:bg-purple-600">Get Market Data</button>
+                            <button id="startMonitoringBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">Start Monitoring</button>
+                            <button id="stopMonitoringBtn" class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600">Stop Monitoring</button>
+                            <button id="getAnalyticsBtn" class="w-full bg-purple-500 text-white p-2 rounded hover:bg-purple-600">Get Position Analytics</button>
+                            <div id="monitoringStatus" class="text-sm text-gray-600 text-center mt-2">
+                                Monitoring: Inactive
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hedging Controls -->
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <h2 class="text-xl font-semibold mb-4">Hedging Controls</h2>
+                        <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
+                            <input type="text" id="hedgePositionId" placeholder="Position ID" class="w-full p-2 border rounded">
                             <button id="hedgePositionBtn" class="w-full bg-yellow-500 text-white p-2 rounded hover:bg-yellow-600">Hedge Position</button>
                             <button id="hedgeAllPositionsBtn" class="w-full bg-orange-500 text-white p-2 rounded hover:bg-orange-600">Hedge All Positions</button>
+                            <button id="getHedgeStatusBtn" class="w-full bg-teal-500 text-white p-2 rounded hover:bg-teal-600">Get Hedge Status</button>
                         </div>
                     </div>
 
-                    <!-- Additional Controls -->
+                    <!-- Settings -->
                     <div class="bg-gray-50 p-4 rounded-lg">
-                        <h2 class="text-xl font-semibold mb-4">Additional Controls</h2>
+                        <h2 class="text-xl font-semibold mb-4">Settings</h2>
                         <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <button id="getHedgeStatusBtn" class="w-full bg-teal-500 text-white p-2 rounded hover:bg-teal-600">Get Hedge Status</button>
-                            <input type="text" id="positionHistoryId" placeholder="Position ID" class="w-full p-2 border rounded">
-                            <button id="getPositionHistoryBtn" class="w-full bg-pink-500 text-white p-2 rounded hover:bg-pink-600">Get Position History</button>
                             <button id="getSettingsBtn" class="w-full bg-gray-500 text-white p-2 rounded hover:bg-gray-600">Get Settings</button>
                             <button id="updateSettingsBtn" class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600">Update Settings</button>
                         </div>
@@ -98,10 +96,12 @@
             </div>
         </div>
     </div>
+
     <script>
-        BASE_URL = 'http://13.60.29.20/api';
+        BASE_URL = 'http://localhost:8000/api';
         const responseDisplay = document.getElementById('responseDisplay');
         let isLoading = false;
+        let monitoringInterval = null;
         
         function showLoading() {
             const loader = document.createElement('div');
@@ -132,69 +132,142 @@
                 isLoading = false;
             }
         }
+    
         function displayResponse(data) {
             const timestamp = new Date().toLocaleTimeString();
-            responseDisplay.innerHTML = `
+            let content = `
                 <div class="p-4 border rounded bg-white">
                     <div class="text-sm text-gray-600 mb-2">${timestamp}</div>
+            `;
+    
+            if (data.error) {
+                content += `
+                    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+                        ${data.message}
+                    </div>
+                `;
+            }
+    
+            // Display Greeks if available
+            if (data.greeks) {
+                content += `
+                    <div class="mb-4 p-4 bg-blue-50 rounded">
+                        <h3 class="font-semibold mb-2">Greeks:</h3>
+                        <div class="grid grid-cols-2 gap-2 text-sm">
+                            <div>Delta: ${data.greeks.delta.toFixed(4)}</div>
+                            <div>Gamma: ${data.greeks.gamma.toFixed(4)}</div>
+                            <div>Theta: ${data.greeks.theta.toFixed(4)}</div>
+                            <div>Vega: ${data.greeks.vega.toFixed(4)}</div>
+                        </div>
+                    </div>
+                `;
+            }
+    
+            // Full response data
+            content += `
                     <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${JSON.stringify(data, null, 2)}</pre>
                 </div>
             `;
+    
+            responseDisplay.innerHTML = content;
         }
-        // Create Position
-        document.getElementById('createPositionForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = Object.fromEntries(new FormData(e.target));
-            ['strike', 'premium', 'contracts', 'time_to_expiry'].forEach(field => {
-                formData[field] = Number(formData[field]);
-            });
-            await makeApiCall('/positions', { method: 'POST', data: formData });
-        });
-     
-        // List Positions
+    
+        function startMonitoring() {
+            if (monitoringInterval) return;
+            
+            // Update UI
+            document.getElementById('monitoringStatus').textContent = 'Monitoring: Active';
+            document.getElementById('monitoringStatus').className = 'text-sm text-green-600 text-center mt-2';
+            
+            // Start interval
+            monitoringInterval = setInterval(async () => {
+                await makeApiCall('/hedge/status');
+            }, 60000); // Every minute
+        }
+    
+        function stopMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+                
+                // Update UI
+                document.getElementById('monitoringStatus').textContent = 'Monitoring: Inactive';
+                document.getElementById('monitoringStatus').className = 'text-sm text-gray-600 text-center mt-2';
+            }
+        }
+    
+        // Event Listeners
         document.getElementById('listPositionsBtn').addEventListener('click', async () => {
             await makeApiCall('/positions');
         });
-     
-        // Get Position
+    
+        document.getElementById('getSoldPositionsBtn').addEventListener('click', async () => {
+            await makeApiCall('/positions/sold');
+        });
+    
         document.getElementById('getPositionBtn').addEventListener('click', async () => {
             const positionId = document.getElementById('positionId').value;
+            if (!positionId) {
+                displayResponse({
+                    error: true,
+                    message: 'Please enter a Position ID'
+                });
+                return;
+            }
             await makeApiCall(`/positions/${positionId}`);
         });
-     
-        // Market Data
-        document.getElementById('getMarketDataBtn').addEventListener('click', async () => {
-            const positionId = document.getElementById('marketDataPositionId').value;
-            await makeApiCall(`/market-data/${positionId}`);
+    
+        document.getElementById('startMonitoringBtn').addEventListener('click', async () => {
+            const response = await makeApiCall('/monitor/start', { method: 'POST' });
+            if (!response.error) {
+                startMonitoring();
+            }
         });
-     
-        // Hedge Position
+    
+        document.getElementById('stopMonitoringBtn').addEventListener('click', () => {
+            stopMonitoring();
+            displayResponse({
+                message: 'Monitoring stopped',
+                timestamp: new Date().toISOString()
+            });
+        });
+    
+        document.getElementById('getAnalyticsBtn').addEventListener('click', async () => {
+            const positionId = document.getElementById('positionId').value;
+            if (!positionId) {
+                displayResponse({
+                    error: true,
+                    message: 'Please enter a Position ID'
+                });
+                return;
+            }
+            await makeApiCall(`/analytics/${positionId}`);
+        });
+    
         document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
-            const positionId = document.getElementById('marketDataPositionId').value;
+            const positionId = document.getElementById('hedgePositionId').value;
+            if (!positionId) {
+                displayResponse({
+                    error: true,
+                    message: 'Please enter a Position ID'
+                });
+                return;
+            }
             await makeApiCall(`/hedge/${positionId}`, { method: 'POST' });
         });
-     
-        // Hedge All Positions
+    
         document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
             await makeApiCall('/hedge/all', { method: 'POST' });
         });
-     
-        // Get Hedge Status
+    
         document.getElementById('getHedgeStatusBtn').addEventListener('click', async () => {
             await makeApiCall('/hedge/status');
         });
-     
-        // Position History
-        document.getElementById('getPositionHistoryBtn').addEventListener('click', async () => {
-            const positionId = document.getElementById('positionHistoryId').value;
-            await makeApiCall(`/positions/${positionId}/history`);
-        });
-     
-        // Settings
+    
         document.getElementById('getSettingsBtn').addEventListener('click', async () => {
             await makeApiCall('/settings');
         });
-     
+    
         document.getElementById('updateSettingsBtn').addEventListener('click', async () => {
             const settingsUpdate = {
                 min_hedge_size: 0.02,
@@ -203,6 +276,11 @@
             };
             await makeApiCall('/settings', { method: 'POST', data: settingsUpdate });
         });
-     </script>
-</body>
-</html>
+    
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            stopMonitoring();
+        });
+    </script>
+    </body>
+    </html>

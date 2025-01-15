@@ -6,6 +6,7 @@ from flask import jsonify, render_template, request
 
 from app import app
 from app.core.delta_hedger import DeltaHedger
+from app.models.position import Position
 from app.services.ig_client import IGClient
 from config.settings import HEDGE_SETTINGS as _hedge_settings
 
@@ -19,54 +20,58 @@ def index():
     return render_template("index.html")
 
 
-# Create API endpoints
-@app.route("/api/positions", methods=["POST"])
-def create_position():
-    """Create a new position"""
+@app.route("/api/monitor/start", methods=["POST"])
+def start_monitoring():
+    """Start monitoring and hedging positions"""
     try:
-        data = request.get_json()
-        position_id = hedger.create_position(data)
-        return jsonify(
-            {
-                "position_id": position_id,
-                "position": hedger.positions[position_id].to_dict(),
-            }
-        )
+        result = hedger.monitor_positions()
+        return jsonify(result)
     except Exception as e:
-        logging.error(f"Position creation error: {str(e)}")
-        return jsonify({"error": str(e)}), 400
+        logging.error(f"Error starting monitoring: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/positions/<position_id>", methods=["GET"])
 def get_position(position_id):
-    """Get position details with improved error handling"""
     try:
+        # First try to get from stored positions
         position = hedger.get_position(position_id)
-        if not position:
-            return (
-                jsonify(
-                    {
-                        "error": "Position not found",
-                        "available_positions": list(hedger.positions.keys()),
-                    }
-                ),
-                404,
-            )
 
-        # Get current market data
-        market_data = hedger.ig_client.mock_data.get_market_data()
+        # If not found, try to get fresh from IG API
+        if not position:
+            positions_data = hedger.ig_client.get_positions()
+            parsed_data = hedger.ig_client.parse_position_data(positions_data)
+
+            # Create Position object from matching position data
+            for pos in parsed_data.get("positions", []):
+                if pos["deal_id"] == position_id:
+                    position = Position(pos)
+                    hedger.positions[position_id] = position
+                    break
+
+        if not position:
+            return jsonify({"error": "Position not found"}), 404
+
+        # Get market data and return position details
+        if not position.epic:
+            return jsonify({"error": "Position epic is missing"}), 400
+
+        market_data = hedger.ig_client.get_market_data(position.epic)
         current_price = market_data["price"]
         pnl = hedger.calculate_pnl(position, current_price)
 
         return jsonify(
             {
                 "position": position.to_dict(),
-                "active": position.is_active,
-                "total_hedges": len(position.hedge_history),
-                "current_status": {
+                "market_data": market_data,
+                "status": {
                     "current_price": current_price,
                     "current_pnl": pnl,
-                    "needs_hedge": pnl <= -position.premium,
+                    "needs_hedge": (
+                        pnl <= -position.premium
+                        if hasattr(position, "premium")
+                        else False
+                    ),
                 },
             }
         )
@@ -78,30 +83,17 @@ def get_position(position_id):
 
 @app.route("/api/positions", methods=["GET"])
 def list_positions():
-    """List all positions with proper error handling"""
+    """Get all positions from IG Trading"""
     try:
-        positions = hedger.list_positions()
-        # Get current market data for all positions
-        positions_with_status = {}
-        for pid, pos_data in positions.items():
-            position = hedger.get_position(pid)
-            if position:
-                market_data = hedger.ig_client.mock_data.get_market_data()
-                current_price = market_data["price"]
-                pnl = hedger.calculate_pnl(position, current_price)
+        positions_data = hedger.ig_client.get_positions()
+        if "error" in positions_data:
+            return jsonify(positions_data), 400
 
-                positions_with_status[pid] = {
-                    **pos_data,
-                    "current_status": {
-                        "current_price": current_price,
-                        "current_pnl": pnl,
-                        "needs_hedge": pnl <= -position.premium,
-                    },
-                }
+        parsed_data = hedger.ig_client.parse_position_data(positions_data)
+        return jsonify(parsed_data)
 
-        return jsonify({"positions": positions_with_status, "count": len(positions)})
     except Exception as e:
-        logging.error(f"Error listing positions: {str(e)}")
+        logging.error(f"Error getting IG positions: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -158,6 +150,67 @@ def get_market_data(position_id):
 
     except Exception as e:
         logging.error(f"Error getting market data for position {position_id}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/positions/sold", methods=["GET"])
+def get_sold_positions():
+    """Get all sold option positions"""
+    try:
+        positions_data = hedger.ig_client.get_positions()
+        parsed_data = hedger.ig_client.parse_position_data(positions_data)
+
+        sold_positions = [
+            pos for pos in parsed_data["positions"] if pos["direction"] == "SELL"
+        ]
+
+        return jsonify({"positions": sold_positions})
+    except Exception as e:
+        logging.error(f"Error getting sold positions: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+def get_position_analytics(position_id):
+    """Get detailed position analytics"""
+    try:
+        position = hedger.get_position(position_id)
+        if not position:
+            return jsonify({"error": "Position not found"}), 404
+
+        if position.underlying_epic:
+            market_data = hedger.ig_client.get_underlying_data(position.underlying_epic)
+        else:
+            market_data = hedger.ig_client.mock_data.get_market_data()
+
+        current_price = (market_data["bid"] + market_data["offer"]) / 2
+        pnl = hedger.calculate_pnl(position, current_price)
+
+        greeks = hedger.calculator.calculate_greeks(
+            current_price,
+            position.strike,
+            position.time_to_expiry,
+            market_data["volatility"],
+            position.option_type,
+        )
+
+        analytics = {
+            "position": position.to_dict(),
+            "market_data": market_data,
+            "analysis": {
+                "current_price": current_price,
+                "current_pnl": pnl,
+                "greeks": greeks,
+                "hedge_size": position.hedge_size,
+                "needs_hedge": position.needs_hedge(pnl),
+                "premium_threshold": -position.premium,
+            },
+            "hedge_history": [record.to_dict() for record in position.hedge_history],
+        }
+
+        return jsonify(analytics)
+
+    except Exception as e:
+        logging.error(f"Error getting analytics for position {position_id}: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
