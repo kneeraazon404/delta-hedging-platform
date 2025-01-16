@@ -47,7 +47,7 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 /logs
-
+ig_trading.pem
 
 # Unit test / coverage reports
 htmlcov/

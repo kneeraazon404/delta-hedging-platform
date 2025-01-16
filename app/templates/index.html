@@ -97,190 +97,190 @@
         </div>
     </div>
 
-    <script>
-        BASE_URL = 'http://13.60.29.20/api';
-        const responseDisplay = document.getElementById('responseDisplay');
-        let isLoading = false;
-        let monitoringInterval = null;
+<script>
+    BASE_URL = 'http://localhost:8000/api';
+    const responseDisplay = document.getElementById('responseDisplay');
+    let isLoading = false;
+    let monitoringInterval = null;
+    
+    function showLoading() {
+        const loader = document.createElement('div');
+        loader.className = 'loading-indicator p-4 bg-blue-50 border rounded mb-4';
+        loader.innerHTML = 'Loading...';
+        responseDisplay.insertBefore(loader, responseDisplay.firstChild);
+        return loader;
+    }
+    
+    async function makeApiCall(url, options = {}) {
+        if (isLoading) return;
+        isLoading = true;
+        const loader = showLoading();
         
-        function showLoading() {
-            const loader = document.createElement('div');
-            loader.className = 'loading-indicator p-4 bg-blue-50 border rounded mb-4';
-            loader.innerHTML = 'Loading...';
-            responseDisplay.insertBefore(loader, responseDisplay.firstChild);
-            return loader;
-        }
-        
-        async function makeApiCall(url, options = {}) {
-            if (isLoading) return;
-            isLoading = true;
-            const loader = showLoading();
-            
-            try {
-                const response = await axios({ url: `${BASE_URL}${url}`, ...options });
-                loader.remove();
-                displayResponse(response.data);
-                return response.data;
-            } catch (error) {
-                loader.remove();
-                displayResponse({
-                    error: true,
-                    message: error.response?.data?.error || error.message,
-                    timestamp: new Date().toISOString()
-                });
-            } finally {
-                isLoading = false;
-            }
-        }
-    
-        function displayResponse(data) {
-            const timestamp = new Date().toLocaleTimeString();
-            let content = `
-                <div class="p-4 border rounded bg-white">
-                    <div class="text-sm text-gray-600 mb-2">${timestamp}</div>
-            `;
-    
-            if (data.error) {
-                content += `
-                    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
-                        ${data.message}
-                    </div>
-                `;
-            }
-    
-            // Display Greeks if available
-            if (data.greeks) {
-                content += `
-                    <div class="mb-4 p-4 bg-blue-50 rounded">
-                        <h3 class="font-semibold mb-2">Greeks:</h3>
-                        <div class="grid grid-cols-2 gap-2 text-sm">
-                            <div>Delta: ${data.greeks.delta.toFixed(4)}</div>
-                            <div>Gamma: ${data.greeks.gamma.toFixed(4)}</div>
-                            <div>Theta: ${data.greeks.theta.toFixed(4)}</div>
-                            <div>Vega: ${data.greeks.vega.toFixed(4)}</div>
-                        </div>
-                    </div>
-                `;
-            }
-    
-            // Full response data
-            content += `
-                    <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${JSON.stringify(data, null, 2)}</pre>
-                </div>
-            `;
-    
-            responseDisplay.innerHTML = content;
-        }
-    
-        function startMonitoring() {
-            if (monitoringInterval) return;
-            
-            // Update UI
-            document.getElementById('monitoringStatus').textContent = 'Monitoring: Active';
-            document.getElementById('monitoringStatus').className = 'text-sm text-green-600 text-center mt-2';
-            
-            // Start interval
-            monitoringInterval = setInterval(async () => {
-                await makeApiCall('/hedge/status');
-            }, 60000); // Every minute
-        }
-    
-        function stopMonitoring() {
-            if (monitoringInterval) {
-                clearInterval(monitoringInterval);
-                monitoringInterval = null;
-                
-                // Update UI
-                document.getElementById('monitoringStatus').textContent = 'Monitoring: Inactive';
-                document.getElementById('monitoringStatus').className = 'text-sm text-gray-600 text-center mt-2';
-            }
-        }
-    
-        // Event Listeners
-        document.getElementById('listPositionsBtn').addEventListener('click', async () => {
-            await makeApiCall('/positions');
-        });
-    
-        document.getElementById('getSoldPositionsBtn').addEventListener('click', async () => {
-            await makeApiCall('/positions/sold');
-        });
-    
-        document.getElementById('getPositionBtn').addEventListener('click', async () => {
-            const positionId = document.getElementById('positionId').value;
-            if (!positionId) {
-                displayResponse({
-                    error: true,
-                    message: 'Please enter a Position ID'
-                });
-                return;
-            }
-            await makeApiCall(`/positions/${positionId}`);
-        });
-    
-        document.getElementById('startMonitoringBtn').addEventListener('click', async () => {
-            const response = await makeApiCall('/monitor/start', { method: 'POST' });
-            if (!response.error) {
-                startMonitoring();
-            }
-        });
-    
-        document.getElementById('stopMonitoringBtn').addEventListener('click', () => {
-            stopMonitoring();
+        try {
+            const response = await axios({ url: `${BASE_URL}${url}`, ...options });
+            loader.remove();
+            displayResponse(response.data);
+            return response.data;
+        } catch (error) {
+            loader.remove();
             displayResponse({
-                message: 'Monitoring stopped',
+                error: true,
+                message: error.response?.data?.error || error.message,
                 timestamp: new Date().toISOString()
             });
-        });
-    
-        document.getElementById('getAnalyticsBtn').addEventListener('click', async () => {
-            const positionId = document.getElementById('positionId').value;
-            if (!positionId) {
-                displayResponse({
-                    error: true,
-                    message: 'Please enter a Position ID'
-                });
-                return;
-            }
-            await makeApiCall(`/analytics/${positionId}`);
-        });
-    
-        document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
-            const positionId = document.getElementById('hedgePositionId').value;
-            if (!positionId) {
-                displayResponse({
-                    error: true,
-                    message: 'Please enter a Position ID'
-                });
-                return;
-            }
-            await makeApiCall(`/hedge/${positionId}`, { method: 'POST' });
-        });
-    
-        document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
-            await makeApiCall('/hedge/all', { method: 'POST' });
-        });
-    
-        document.getElementById('getHedgeStatusBtn').addEventListener('click', async () => {
+        } finally {
+            isLoading = false;
+        }
+    }
+
+    function displayResponse(data) {
+        const timestamp = new Date().toLocaleTimeString();
+        let content = `
+            <div class="p-4 border rounded bg-white">
+                <div class="text-sm text-gray-600 mb-2">${timestamp}</div>
+        `;
+
+        if (data.error) {
+            content += `
+                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+                    ${data.message}
+                </div>
+            `;
+        }
+
+        // Display Greeks if available
+        if (data.greeks) {
+            content += `
+                <div class="mb-4 p-4 bg-blue-50 rounded">
+                    <h3 class="font-semibold mb-2">Greeks:</h3>
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        <div>Delta: ${data.greeks.delta.toFixed(4)}</div>
+                        <div>Gamma: ${data.greeks.gamma.toFixed(4)}</div>
+                        <div>Theta: ${data.greeks.theta.toFixed(4)}</div>
+                        <div>Vega: ${data.greeks.vega.toFixed(4)}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Full response data
+        content += `
+                <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${JSON.stringify(data, null, 2)}</pre>
+            </div>
+        `;
+
+        responseDisplay.innerHTML = content;
+    }
+
+    function startMonitoring() {
+        if (monitoringInterval) return;
+        
+        // Update UI
+        document.getElementById('monitoringStatus').textContent = 'Monitoring: Active';
+        document.getElementById('monitoringStatus').className = 'text-sm text-green-600 text-center mt-2';
+        
+        // Start interval
+        monitoringInterval = setInterval(async () => {
             await makeApiCall('/hedge/status');
+        }, 60000); // Every minute
+    }
+
+    function stopMonitoring() {
+        if (monitoringInterval) {
+            clearInterval(monitoringInterval);
+            monitoringInterval = null;
+            
+            // Update UI
+            document.getElementById('monitoringStatus').textContent = 'Monitoring: Inactive';
+            document.getElementById('monitoringStatus').className = 'text-sm text-gray-600 text-center mt-2';
+        }
+    }
+
+    // Event Listeners
+    document.getElementById('listPositionsBtn').addEventListener('click', async () => {
+        await makeApiCall('/positions');
+    });
+
+    document.getElementById('getSoldPositionsBtn').addEventListener('click', async () => {
+        await makeApiCall('/positions/sold');
+    });
+
+    document.getElementById('getPositionBtn').addEventListener('click', async () => {
+        const positionId = document.getElementById('positionId').value;
+        if (!positionId) {
+            displayResponse({
+                error: true,
+                message: 'Please enter a Position ID'
+            });
+            return;
+        }
+        await makeApiCall(`/positions/${positionId}`);
+    });
+
+    document.getElementById('startMonitoringBtn').addEventListener('click', async () => {
+        const response = await makeApiCall('/monitor/start', { method: 'POST' });
+        if (!response.error) {
+            startMonitoring();
+        }
+    });
+
+    document.getElementById('stopMonitoringBtn').addEventListener('click', () => {
+        stopMonitoring();
+        displayResponse({
+            message: 'Monitoring stopped',
+            timestamp: new Date().toISOString()
         });
-    
-        document.getElementById('getSettingsBtn').addEventListener('click', async () => {
-            await makeApiCall('/settings');
-        });
-    
-        document.getElementById('updateSettingsBtn').addEventListener('click', async () => {
-            const settingsUpdate = {
-                min_hedge_size: 0.02,
-                max_hedge_size: 50.0,
-                hedge_interval: 120
-            };
-            await makeApiCall('/settings', { method: 'POST', data: settingsUpdate });
-        });
-    
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', () => {
-            stopMonitoring();
-        });
-    </script>
-    </body>
-    </html>
+    });
+
+    document.getElementById('getAnalyticsBtn').addEventListener('click', async () => {
+        const positionId = document.getElementById('positionId').value;
+        if (!positionId) {
+            displayResponse({
+                error: true,
+                message: 'Please enter a Position ID'
+            });
+            return;
+        }
+        await makeApiCall(`/analytics/${positionId}`);
+    });
+
+    document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
+        const positionId = document.getElementById('hedgePositionId').value;
+        if (!positionId) {
+            displayResponse({
+                error: true,
+                message: 'Please enter a Position ID'
+            });
+            return;
+        }
+        await makeApiCall(`/hedge/${positionId}`, { method: 'POST' });
+    });
+
+    document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
+        await makeApiCall('/hedge/all', { method: 'POST' });
+    });
+
+    document.getElementById('getHedgeStatusBtn').addEventListener('click', async () => {
+        await makeApiCall('/hedge/status');
+    });
+
+    document.getElementById('getSettingsBtn').addEventListener('click', async () => {
+        await makeApiCall('/settings');
+    });
+
+    document.getElementById('updateSettingsBtn').addEventListener('click', async () => {
+        const settingsUpdate = {
+            min_hedge_size: 0.02,
+            max_hedge_size: 50.0,
+            hedge_interval: 120
+        };
+        await makeApiCall('/settings', { method: 'POST', data: settingsUpdate });
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+        stopMonitoring();
+    });
+</script>
+</body>
+</html>

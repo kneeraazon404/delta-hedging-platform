@@ -7,4 +7,6 @@ HEDGE_SETTINGS = {
     "min_volatility": 0.001,
     "max_volatility": 2.0,
     "username": "Z5TMY0",
+    "delta_threshold": 0.05,
+    "api_request_interval": 0.1,  # seconds
 }
