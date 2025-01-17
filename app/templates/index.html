@@ -272,46 +272,48 @@
             isLoading = false;
         }
     }
-
-    // Response Display
-    function displayResponse(data) {
-        const timestamp = new Date().toLocaleTimeString();
-        let content = `
-            <div class="p-4 border rounded bg-white mb-4 shadow-sm">
-                <div class="text-sm text-gray-600 mb-2">${timestamp}</div>
-        `;
-
-        if (data.error) {
-            content += `
-                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
-                    ${data.message}
-                </div>
-            `;
-        }
-
-        if (data.greeks) {
-            content += `
-                <div class="mb-4 p-4 bg-blue-50 rounded">
-                    <h3 class="font-semibold mb-2">Greeks:</h3>
-                    <div class="grid grid-cols-2 gap-2 text-sm">
-                        <div>Delta: ${data.greeks.delta.toFixed(4)}</div>
-                        <div>Gamma: ${data.greeks.gamma.toFixed(4)}</div>
-                        <div>Theta: ${data.greeks.theta.toFixed(4)}</div>
-                        <div>Vega: ${data.greeks.vega.toFixed(4)}</div>
-                    </div>
-                </div>
-            `;
-        }
-
-        content += `
-                <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${JSON.stringify(data, null, 2)}</pre>
+function displayResponse(data) {
+    const timestamp = new Date().toLocaleTimeString();
+    let content = `
+        <div class="p-4 border rounded bg-white mb-4 shadow-sm">
+            <div class="flex justify-between items-center text-sm text-gray-600 mb-2">
+                <span>${timestamp}</span>
+                <span class="text-xs">${data.status || ''}</span>
             </div>
         `;
 
-        const existingContent = responseDisplay.innerHTML;
-        responseDisplay.innerHTML = content + existingContent;
+    if (data.error) {
+        content += `
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+                ${data.message || data.error}
+            </div>
+        `;
     }
 
+    if (data.greeks) {
+        content += `
+            <div class="mb-4 p-4 bg-blue-50 rounded">
+                <h3 class="font-semibold mb-2">Greeks:</h3>
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                    <div>Delta: ${data.greeks.delta.toFixed(4)}</div>
+                    <div>Gamma: ${data.greeks.gamma.toFixed(4)}</div>
+                    <div>Theta: ${data.greeks.theta.toFixed(4)}</div>
+                    <div>Vega: ${data.greeks.vega.toFixed(4)}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Format data for better readability
+    const formattedData = typeof data === 'object' ? JSON.stringify(data, null, 2) : data;
+    content += `
+            <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${formattedData}</pre>
+        </div>
+    `;
+
+    // Replace content instead of appending
+    responseDisplay.innerHTML = content;
+}
     // Modal Management
     function showModal() {
         modal.style.display = 'block';

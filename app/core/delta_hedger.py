@@ -140,7 +140,7 @@ class DeltaHedger:
         force_hedge: bool = False,
         hedge_size: Optional[float] = None,
     ) -> Dict:
-        """Execute hedging for a position with optional custom size"""
+        """Execute hedging for a position with proper error handling"""
         try:
             position = self.get_position(position_id)
             if not position:
@@ -150,33 +150,42 @@ class DeltaHedger:
             if "error" in delta_info:
                 return delta_info
 
-            # Use provided hedge size or calculate suggested size
+            if not position.epic or not isinstance(position.epic, str):
+                return {"error": "Invalid epic value"}
+
+            # Determine target size and direction
             target_size = (
                 hedge_size
                 if hedge_size is not None
-                else delta_info.get("suggested_hedge_size", 0)
+                else delta_info["suggested_hedge_size"]
             )
-            needs_hedge = force_hedge or delta_info.get("needs_hedge", False)
-
-            if not needs_hedge and not force_hedge:
-                return {"status": "no_action_needed", "delta": delta_info}
-
+            current_price = delta_info["current_price"]
             direction = OrderDirection.BUY if target_size > 0 else OrderDirection.SELL
 
-            # Create hedge position
-            if not position.epic:
-                return {"error": "Position epic is None"}
-
-            hedge_result = self.ig_client.create_position(
+            # First try market order
+            result = self.ig_client.create_position(
                 epic=position.epic,
                 direction=direction,
                 size=abs(target_size),
                 order_type=OrderType.MARKET,
             )
 
-            if hedge_result.get("dealId"):
+            # If market order not supported, try limit order
+            if "error" in result and "not-supported-for-epic" in result.get(
+                "error", ""
+            ):
+                result = self.ig_client.create_position(
+                    epic=position.epic,
+                    direction=direction,
+                    size=abs(target_size),
+                    order_type=OrderType.LIMIT,
+                    price=current_price,  # Use current market price as limit # type: ignore
+                )
+
+            # Handle the result
+            if "dealId" in result:
                 position.hedge_size = target_size
-                position.hedge_deal_id = hedge_result["dealId"]
+                position.hedge_deal_id = result["dealId"]
 
                 # Record the hedge
                 hedge_record = HedgeRecord(
@@ -189,13 +198,13 @@ class DeltaHedger:
 
                 return {
                     "status": "hedged",
-                    "deal_id": hedge_result["dealId"],
+                    "deal_id": result["dealId"],
                     "hedge_size": target_size,
                     "delta": delta_info,
                     "hedge_record": hedge_record.to_dict(),
                 }
 
-            return {"error": "Hedge execution failed", "result": hedge_result}
+            return {"error": "Hedge execution failed", "result": result}
 
         except Exception as e:
             logger.error(f"Error hedging position: {str(e)}")
