@@ -50,7 +50,9 @@ class Position:
         self.last_hedge_price: Optional[float] = data.get("last_hedge_price")
         self.last_hedge_time: Optional[str] = data.get("last_hedge_time")
         self.hedge_history: List[HedgeRecord] = []
-
+        self.strike = float(data.get("strike", 0.0))
+        if self.strike <= 0:
+            self.strike = float(data.get("market_data", {}).get("strike", 1.0))
         # Position state
         self.is_active = bool(data.get("is_active", True))
         self.deal_id = data.get("deal_id")

@@ -29,6 +29,71 @@
             padding: 1rem;
             border-radius: 0.375rem;
         }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            position: relative;
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 500px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .close-modal {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            cursor: pointer;
+            font-size: 1.5rem;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            display: none;
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+            }
+            to {
+                transform: translateX(0);
+            }
+        }
+
+        .loading-indicator {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -36,6 +101,7 @@
         <div class="bg-white shadow-md rounded-lg overflow-hidden">
             <div class="bg-blue-600 text-white p-4">
                 <h1 class="text-2xl font-bold">Delta Hedging API Dashboard</h1>
+                <p class="text-sm mt-1">Real-time position monitoring and hedging</p>
             </div>
 
             <div class="flex flex-row p-6 gap-6">
@@ -45,10 +111,10 @@
                     <div class="bg-gray-50 p-4 rounded-lg">
                         <h2 class="text-xl font-semibold mb-4">Position Management</h2>
                         <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <button id="listPositionsBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">List All Positions</button>
-                            <button id="getSoldPositionsBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Get Sold Positions</button>
-                            <input type="text" id="positionId" placeholder="Position ID" class="w-full p-2 border rounded">
-                            <button id="getPositionBtn" class="w-full bg-indigo-500 text-white p-2 rounded hover:bg-indigo-600">Get Position Details</button>
+                            <button id="listPositionsBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 transition">List All Positions</button>
+                            <button id="getSoldPositionsBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">Get Sold Positions</button>
+                            <input type="text" id="positionId" placeholder="Position ID" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                            <button id="getPositionBtn" class="w-full bg-indigo-500 text-white p-2 rounded hover:bg-indigo-600 transition">Get Position Details</button>
                         </div>
                     </div>
 
@@ -56,10 +122,10 @@
                     <div class="bg-gray-50 p-4 rounded-lg">
                         <h2 class="text-xl font-semibold mb-4">Delta Hedging Monitor</h2>
                         <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <button id="startMonitoringBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">Start Monitoring</button>
-                            <button id="stopMonitoringBtn" class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600">Stop Monitoring</button>
-                            <button id="getAnalyticsBtn" class="w-full bg-purple-500 text-white p-2 rounded hover:bg-purple-600">Get Position Analytics</button>
-                            <div id="monitoringStatus" class="text-sm text-gray-600 text-center mt-2">
+                            <button id="startMonitoringBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 transition">Start Monitoring</button>
+                            <button id="stopMonitoringBtn" class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600 transition">Stop Monitoring</button>
+                            <button id="getAnalyticsBtn" class="w-full bg-purple-500 text-white p-2 rounded hover:bg-purple-600 transition">Get Position Analytics</button>
+                            <div id="monitoringStatus" class="text-sm text-gray-600 text-center mt-2 p-2 rounded bg-gray-50">
                                 Monitoring: Inactive
                             </div>
                         </div>
@@ -69,10 +135,10 @@
                     <div class="bg-gray-50 p-4 rounded-lg">
                         <h2 class="text-xl font-semibold mb-4">Hedging Controls</h2>
                         <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <input type="text" id="hedgePositionId" placeholder="Position ID" class="w-full p-2 border rounded">
-                            <button id="hedgePositionBtn" class="w-full bg-yellow-500 text-white p-2 rounded hover:bg-yellow-600">Hedge Position</button>
-                            <button id="hedgeAllPositionsBtn" class="w-full bg-orange-500 text-white p-2 rounded hover:bg-orange-600">Hedge All Positions</button>
-                            <button id="getHedgeStatusBtn" class="w-full bg-teal-500 text-white p-2 rounded hover:bg-teal-600">Get Hedge Status</button>
+                            <input type="text" id="hedgePositionId" placeholder="Position ID" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                            <button id="hedgePositionBtn" class="w-full bg-yellow-500 text-white p-2 rounded hover:bg-yellow-600 transition">Hedge Position</button>
+                            <button id="hedgeAllPositionsBtn" class="w-full bg-orange-500 text-white p-2 rounded hover:bg-orange-600 transition">Hedge All Positions</button>
+                            <button id="getHedgeStatusBtn" class="w-full bg-teal-500 text-white p-2 rounded hover:bg-teal-600 transition">Get Hedge Status</button>
                         </div>
                     </div>
 
@@ -80,8 +146,8 @@
                     <div class="bg-gray-50 p-4 rounded-lg">
                         <h2 class="text-xl font-semibold mb-4">Settings</h2>
                         <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <button id="getSettingsBtn" class="w-full bg-gray-500 text-white p-2 rounded hover:bg-gray-600">Get Settings</button>
-                            <button id="updateSettingsBtn" class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600">Update Settings</button>
+                            <button id="getSettingsBtn" class="w-full bg-gray-500 text-white p-2 rounded hover:bg-gray-600 transition">Get Settings</button>
+                            <button id="updateSettingsBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">Update Settings</button>
                         </div>
                     </div>
                 </div>
@@ -89,7 +155,10 @@
                 <!-- Right Column - Output -->
                 <div class="w-7/12">
                     <div class="bg-gray-50 p-4 rounded-lg sticky top-4">
-                        <h2 class="text-xl font-semibold mb-4">API Response</h2>
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-semibold">API Response</h2>
+                            <button id="clearResponseBtn" class="text-sm text-gray-500 hover:text-gray-700 transition px-3 py-1 rounded hover:bg-gray-100">Clear</button>
+                        </div>
                         <pre id="responseDisplay" class="bg-white p-4 rounded-lg overflow-x-auto border border-gray-200 min-h-[600px] max-h-[800px] overflow-y-auto"></pre>
                     </div>
                 </div>
@@ -97,46 +166,118 @@
         </div>
     </div>
 
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2 class="text-xl font-bold mb-4">Update Settings</h2>
+            <form id="settingsForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Minimum Hedge Size</label>
+                    <input type="number" id="minHedgeSize" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" step="0.01" min="0" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Maximum Hedge Size</label>
+                    <input type="number" id="maxHedgeSize" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" step="0.1" min="0" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Hedge Interval (seconds)</label>
+                    <input type="number" id="hedgeInterval" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" min="1" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Delta Threshold</label>
+                    <input type="number" id="deltaThreshold" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" step="0.01" min="0" required>
+                </div>
+                <button type="submit" id="saveSettings" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">Save Settings</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
 <script>
-    BASE_URL = 'http://13.60.29.20/api';
-    const responseDisplay = document.getElementById('responseDisplay');
+    // Configuration
+    const BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:8000/api' : '/api';
+    const DEFAULT_SETTINGS = {
+        min_hedge_size: 0.02,
+        max_hedge_size: 50.0,
+        hedge_interval: 60,
+        delta_threshold: 0.1
+    };
+
+    // State
+    let currentSettings = { ...DEFAULT_SETTINGS };
     let isLoading = false;
     let monitoringInterval = null;
-    
+
+    // DOM Elements
+    const responseDisplay = document.getElementById('responseDisplay');
+    const settingsForm = document.getElementById('settingsForm');
+    const modal = document.getElementById('settingsModal');
+    const toast = document.getElementById('toast');
+
+    // Toast notification
+    function showToast(message, type = 'success') {
+        toast.textContent = message;
+        toast.className = `toast ${type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} border p-4`;
+        toast.style.display = 'block';
+        
+        setTimeout(() => {
+            toast.style.display = 'none';
+        }, 3000);
+    }
+
+    // Loading indicator
     function showLoading() {
         const loader = document.createElement('div');
-        loader.className = 'loading-indicator p-4 bg-blue-50 border rounded mb-4';
+        loader.className = 'loading-indicator p-4 bg-blue-50 border rounded mb-4 text-blue-700';
         loader.innerHTML = 'Loading...';
         responseDisplay.insertBefore(loader, responseDisplay.firstChild);
         return loader;
     }
-    
+
+    // API Calls
     async function makeApiCall(url, options = {}) {
         if (isLoading) return;
         isLoading = true;
         const loader = showLoading();
         
+        const defaultOptions = {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+        
         try {
-            const response = await axios({ url: `${BASE_URL}${url}`, ...options });
+            const response = await axios({ 
+                url: `${BASE_URL}${url}`, 
+                ...defaultOptions,
+                ...options 
+            });
             loader.remove();
             displayResponse(response.data);
             return response.data;
         } catch (error) {
             loader.remove();
+            const errorMessage = error.response?.data?.error || error.message;
             displayResponse({
                 error: true,
-                message: error.response?.data?.error || error.message,
+                message: errorMessage,
                 timestamp: new Date().toISOString()
             });
+            showToast(errorMessage, 'error');
+            return { error: true, message: errorMessage };
         } finally {
             isLoading = false;
         }
     }
 
+    // Response Display
     function displayResponse(data) {
         const timestamp = new Date().toLocaleTimeString();
         let content = `
-            <div class="p-4 border rounded bg-white">
+            <div class="p-4 border rounded bg-white mb-4 shadow-sm">
                 <div class="text-sm text-gray-600 mb-2">${timestamp}</div>
         `;
 
@@ -148,7 +289,6 @@
             `;
         }
 
-        // Display Greeks if available
         if (data.greeks) {
             content += `
                 <div class="mb-4 p-4 bg-blue-50 rounded">
@@ -163,40 +303,119 @@
             `;
         }
 
-        // Full response data
         content += `
                 <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${JSON.stringify(data, null, 2)}</pre>
             </div>
         `;
 
-        responseDisplay.innerHTML = content;
+        const existingContent = responseDisplay.innerHTML;
+        responseDisplay.innerHTML = content + existingContent;
     }
 
+    // Modal Management
+    function showModal() {
+        modal.style.display = 'block';
+        loadSettingsIntoForm();
+    }
+    
+    function hideModal() {
+        modal.style.display = 'none';
+    }
+
+    // Settings Management
+    function loadSettingsIntoForm() {
+        document.getElementById('minHedgeSize').value = currentSettings.min_hedge_size || DEFAULT_SETTINGS.min_hedge_size;
+        document.getElementById('maxHedgeSize').value = currentSettings.max_hedge_size || DEFAULT_SETTINGS.max_hedge_size;
+        document.getElementById('hedgeInterval').value = currentSettings.hedge_interval || DEFAULT_SETTINGS.hedge_interval;
+        document.getElementById('deltaThreshold').value = currentSettings.delta_threshold || DEFAULT_SETTINGS.delta_threshold;
+    }
+
+    async function loadSettings() {
+        const response = await makeApiCall('/settings');
+        if (!response.error) {
+            currentSettings = response.settings;
+            loadSettingsIntoForm();
+            showToast('Settings loaded successfully');
+        }
+    }
+
+    async function saveSettings(event) {
+        event.preventDefault();
+        
+        const settings = {
+            min_hedge_size: parseFloat(document.getElementById('minHedgeSize').value),
+            max_hedge_size: parseFloat(document.getElementById('maxHedgeSize').value),
+            hedge_interval: parseInt(document.getElementById('hedgeInterval').value),
+            delta_threshold: parseFloat(document.getElementById('deltaThreshold').value)
+        };
+
+        // Validate settings
+        if (settings.min_hedge_size >= settings.max_hedge_size) {
+            showToast('Minimum hedge size must be less than maximum hedge size', 'error');
+            return;
+        }
+
+        if (settings.hedge_interval < 1) {
+            showToast('Hedge interval must be at least 1 second', 'error');
+            return;
+        }
+
+        const response = await makeApiCall('/settings', {
+            method: 'POST',
+            data: settings
+        });
+
+        if (!response.error) {
+            currentSettings = settings;
+            hideModal();
+            showToast('Settings updated successfully');
+        }
+    }
+
+    // Monitoring Functions
     function startMonitoring() {
         if (monitoringInterval) return;
         
-        // Update UI
-        document.getElementById('monitoringStatus').textContent = 'Monitoring: Active';
-        document.getElementById('monitoringStatus').className = 'text-sm text-green-600 text-center mt-2';
+        updateMonitoringStatus(true);
         
-        // Start interval
         monitoringInterval = setInterval(async () => {
             await makeApiCall('/hedge/status');
-        }, 60000); // Every minute
+        }, (currentSettings.hedge_interval || DEFAULT_SETTINGS.hedge_interval) * 1000);
+        
+        showToast('Monitoring started');
     }
 
     function stopMonitoring() {
         if (monitoringInterval) {
             clearInterval(monitoringInterval);
             monitoringInterval = null;
-            
-            // Update UI
-            document.getElementById('monitoringStatus').textContent = 'Monitoring: Inactive';
-            document.getElementById('monitoringStatus').className = 'text-sm text-gray-600 text-center mt-2';
+            updateMonitoringStatus(false);
+            showToast('Monitoring stopped');
         }
     }
 
+    function updateMonitoringStatus(isActive) {
+        const statusElement = document.getElementById('monitoringStatus');
+        statusElement.textContent = `Monitoring: ${isActive ? 'Active' : 'Inactive'}`;
+        statusElement.className = `text-sm ${isActive ? 'text-green-600' : 'text-gray-600'} text-center mt-2 p-2 rounded ${isActive ? 'bg-green-50' : 'bg-gray-50'}`;
+    }
+
     // Event Listeners
+    document.getElementById('settingsForm').addEventListener('submit', saveSettings);
+    
+    document.querySelector('.close-modal').onclick = hideModal;
+    
+    window.onclick = (event) => {
+        if (event.target === modal) {
+            hideModal();
+        }
+    };
+
+    document.getElementById('clearResponseBtn').addEventListener('click', () => {
+        responseDisplay.innerHTML = '';
+        showToast('Response cleared');
+    });
+
     document.getElementById('listPositionsBtn').addEventListener('click', async () => {
         await makeApiCall('/positions');
     });
@@ -208,37 +427,34 @@
     document.getElementById('getPositionBtn').addEventListener('click', async () => {
         const positionId = document.getElementById('positionId').value;
         if (!positionId) {
-            displayResponse({
-                error: true,
-                message: 'Please enter a Position ID'
-            });
+            showToast('Please enter a Position ID', 'error');
             return;
         }
         await makeApiCall(`/positions/${positionId}`);
     });
 
     document.getElementById('startMonitoringBtn').addEventListener('click', async () => {
-        const response = await makeApiCall('/monitor/start', { method: 'POST' });
+        const monitoringSettings = {
+            interval: currentSettings.hedge_interval || DEFAULT_SETTINGS.hedge_interval,
+            delta_threshold: currentSettings.delta_threshold || DEFAULT_SETTINGS.delta_threshold
+        };
+        
+        const response = await makeApiCall('/monitor/start', {
+            method: 'POST',
+            data: monitoringSettings
+        });
+        
         if (!response.error) {
             startMonitoring();
         }
     });
 
-    document.getElementById('stopMonitoringBtn').addEventListener('click', () => {
-        stopMonitoring();
-        displayResponse({
-            message: 'Monitoring stopped',
-            timestamp: new Date().toISOString()
-        });
-    });
+    document.getElementById('stopMonitoringBtn').addEventListener('click', stopMonitoring);
 
     document.getElementById('getAnalyticsBtn').addEventListener('click', async () => {
         const positionId = document.getElementById('positionId').value;
         if (!positionId) {
-            displayResponse({
-                error: true,
-                message: 'Please enter a Position ID'
-            });
+            showToast('Please enter a Position ID', 'error');
             return;
         }
         await makeApiCall(`/analytics/${positionId}`);
@@ -247,17 +463,23 @@
     document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
         const positionId = document.getElementById('hedgePositionId').value;
         if (!positionId) {
-            displayResponse({
-                error: true,
-                message: 'Please enter a Position ID'
-            });
+            showToast('Please enter a Position ID', 'error');
             return;
         }
-        await makeApiCall(`/hedge/${positionId}`, { method: 'POST' });
+        await makeApiCall(`/hedge/${positionId}`, {
+            method: 'POST',
+            data: { force: true }
+        });
     });
 
     document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
-        await makeApiCall('/hedge/all', { method: 'POST' });
+        const response = await makeApiCall('/hedge/all', {
+            method: 'POST',
+            data: { force: true }
+        });
+        if (!response.error) {
+            showToast('Hedging all positions');
+        }
     });
 
     document.getElementById('getHedgeStatusBtn').addEventListener('click', async () => {
@@ -268,16 +490,16 @@
         await makeApiCall('/settings');
     });
 
-    document.getElementById('updateSettingsBtn').addEventListener('click', async () => {
-        const settingsUpdate = {
-            min_hedge_size: 0.02,
-            max_hedge_size: 50.0,
-            hedge_interval: 120
-        };
-        await makeApiCall('/settings', { method: 'POST', data: settingsUpdate });
+    document.getElementById('updateSettingsBtn').addEventListener('click', () => {
+        showModal();
     });
 
-    // Cleanup on page unload
+    // Initialization
+    loadSettings().then(() => {
+        updateMonitoringStatus(false);
+    });
+
+    // Cleanup
     window.addEventListener('beforeunload', () => {
         stopMonitoring();
     });

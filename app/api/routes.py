@@ -208,19 +208,19 @@ def hedge_position(position_id: str) -> ApiResponse:
     """Manually trigger hedging for a position"""
     try:
         data = validate_json_request()
-
         force_hedge = bool(data.get("force", False))
-        custom_size = float(data.get("hedge_size", 0)) if "hedge_size" in data else None
 
+        # Use hedge_size instead of custom_hedge_size
         result = hedger.hedge_position(
             position_id=position_id,
             force_hedge=force_hedge,
-            custom_hedge_size=custom_size,
+            hedge_size=float(data["hedge_size"]) if "hedge_size" in data else None,
         )
 
         if "error" in result:
             return jsonify(result), HTTPStatus.BAD_REQUEST
 
+        # Get updated position info
         position = hedger.get_position(position_id)
         if position:
             result["updated_position"] = position.to_dict()
@@ -299,4 +299,45 @@ def handle_settings() -> ApiResponse:
         return jsonify({"error": str(e)}), HTTPStatus.BAD_REQUEST
     except Exception as e:
         logger.error(f"Error handling settings: {str(e)}")
+        return jsonify({"error": str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@app.route("/api/analytics/<position_id>", methods=["GET"])
+def get_position_analytics(position_id: str) -> ApiResponse:
+    """Get detailed analytics for a position"""
+    try:
+        position = hedger.get_position(position_id)
+        if not position:
+            return jsonify({"error": "Position not found"}), HTTPStatus.NOT_FOUND
+
+        market_data = ig_client.get_market_data(position.epic)
+        if not market_data:
+            return (
+                jsonify({"error": "Failed to fetch market data"}),
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+
+        delta_info = hedger.calculate_position_delta(position)
+        metrics = hedger.calculate_position_metrics(position)
+        greeks = hedger.calculator.calculate_greeks(
+            S=market_data["price"],
+            K=position.strike,
+            T=position.time_to_expiry,
+            sigma=market_data.get("volatility", 0.2),
+            option_type=position.option_type,
+        )
+
+        return jsonify(
+            {
+                "position": position.to_dict(),
+                "market_data": market_data,
+                "greeks": greeks,
+                "delta_info": delta_info,
+                "metrics": metrics,
+                "hedge_history": [h.to_dict() for h in position.hedge_history],
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting analytics for position {position_id}: {str(e)}")
         return jsonify({"error": str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR

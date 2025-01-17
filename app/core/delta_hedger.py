@@ -55,11 +55,41 @@ class DeltaHedger:
             logger.error(f"Error getting position {position_id}: {str(e)}")
             return None
 
+    def get_sold_positions(self) -> Dict:
+        """Get all sold positions"""
+        try:
+            positions_data = self.ig_client.get_positions()
+            if "error" in positions_data:
+                return {"error": positions_data["error"]}
+
+            sold_positions = []
+            for pos_data in positions_data.get("positions", []):
+                try:
+                    position = Position.from_dict(pos_data)
+                    if position and position.direction == "SELL":
+                        sold_positions.append(position.to_dict())
+                except Exception as e:
+                    logger.error(f"Error processing position: {str(e)}")
+                    continue
+
+            return {"positions": sold_positions}
+
+        except Exception as e:
+            logger.error(f"Error getting sold positions: {str(e)}")
+            return {"error": str(e)}
+
     def calculate_position_delta(self, position: Position) -> Dict:
         """Calculate delta and hedging requirements"""
         try:
+            if not isinstance(position, Position):
+                return {"error": "Invalid position object"}
+
             if not position.epic:
                 return {"error": "Position epic is None"}
+
+            if position.strike <= 0:
+                return {"error": "Strike price must be positive"}
+
             market_data = self.ig_client.get_market_data(position.epic)
             if not market_data:
                 return {"error": "Failed to fetch market data"}
@@ -104,8 +134,13 @@ class DeltaHedger:
             logger.error(f"Error calculating delta: {str(e)}")
             return {"error": str(e)}
 
-    def hedge_position(self, position_id: str, force_hedge: bool = False) -> Dict:
-        """Execute hedging for a position"""
+    def hedge_position(
+        self,
+        position_id: str,
+        force_hedge: bool = False,
+        hedge_size: Optional[float] = None,
+    ) -> Dict:
+        """Execute hedging for a position with optional custom size"""
         try:
             position = self.get_position(position_id)
             if not position:
@@ -115,16 +150,21 @@ class DeltaHedger:
             if "error" in delta_info:
                 return delta_info
 
-            needs_hedge = force_hedge or delta_info["needs_hedge"]
-            if not needs_hedge:
+            # Use provided hedge size or calculate suggested size
+            target_size = (
+                hedge_size
+                if hedge_size is not None
+                else delta_info.get("suggested_hedge_size", 0)
+            )
+            needs_hedge = force_hedge or delta_info.get("needs_hedge", False)
+
+            if not needs_hedge and not force_hedge:
                 return {"status": "no_action_needed", "delta": delta_info}
 
-            # Execute hedge trade
-            target_size = delta_info["suggested_hedge_size"]
             direction = OrderDirection.BUY if target_size > 0 else OrderDirection.SELL
 
             # Create hedge position
-            if position.epic is None:
+            if not position.epic:
                 return {"error": "Position epic is None"}
 
             hedge_result = self.ig_client.create_position(
@@ -135,7 +175,6 @@ class DeltaHedger:
             )
 
             if hedge_result.get("dealId"):
-                # Update position hedge state
                 position.hedge_size = target_size
                 position.hedge_deal_id = hedge_result["dealId"]
 
@@ -159,7 +198,7 @@ class DeltaHedger:
             return {"error": "Hedge execution failed", "result": hedge_result}
 
         except Exception as e:
-            logger.error(f"Error hedging position {position_id}: {str(e)}")
+            logger.error(f"Error hedging position: {str(e)}")
             return {"error": str(e)}
 
     def calculate_pnl(self, position: Position, current_price: float) -> float:
@@ -247,20 +286,34 @@ class DeltaHedger:
             return {"error": str(e)}
 
     def get_all_positions_status(self) -> Dict:
-        """Get status for all tracked positions"""
+        """Get status for all positions"""
         try:
             positions_status = {}
-            for position_id, position in self.positions.items():
-                metrics = self.calculate_position_metrics(position)
-                positions_status[position_id] = {
-                    "position": position.to_dict(),
-                    "metrics": metrics,
-                    "hedge_history": [
-                        record.to_dict() for record in position.hedge_history
-                    ],
-                }
+            positions_data = self.ig_client.get_positions()
 
-            return {"status": "success", "positions": positions_status}
+            if "error" in positions_data:
+                return {"error": positions_data["error"]}
+
+            for pos_data in positions_data.get("positions", []):
+                try:
+                    position = Position.from_dict(pos_data)
+                    if not position:
+                        continue
+
+                    delta_info = self.calculate_position_delta(position)
+                    metrics = self.calculate_position_metrics(position)
+
+                    positions_status[position.deal_id] = {
+                        "position": position.to_dict(),
+                        "delta": delta_info,
+                        "metrics": metrics,
+                        "needs_hedge": delta_info.get("needs_hedge", False),
+                    }
+                except Exception as e:
+                    logger.error(f"Error processing position status: {str(e)}")
+                    continue
+
+            return positions_status
 
         except Exception as e:
             logger.error(f"Error getting positions status: {str(e)}")
@@ -278,16 +331,19 @@ class DeltaHedger:
     def validate_settings(self, settings: Dict) -> Dict:
         """Validate and update hedger settings"""
         try:
-            # Validate settings
-            required_fields = [
-                "min_hedge_size",
-                "max_hedge_size",
-                "hedge_interval",
-                "delta_threshold",
-            ]
-            for field in required_fields:
-                if field not in settings:
-                    return {"error": f"Missing required field: {field}"}
+            if not isinstance(settings, dict):
+                return {"error": "Settings must be a dictionary"}
+
+            # Convert numeric values
+            try:
+                settings = {
+                    "min_hedge_size": float(settings.get("min_hedge_size", 0)),
+                    "max_hedge_size": float(settings.get("max_hedge_size", 0)),
+                    "hedge_interval": float(settings.get("hedge_interval", 0)),
+                    "delta_threshold": float(settings.get("delta_threshold", 0)),
+                }
+            except (ValueError, TypeError):
+                return {"error": "Invalid numeric values in settings"}
 
             # Validate values
             if settings["min_hedge_size"] <= 0:
@@ -309,4 +365,21 @@ class DeltaHedger:
 
         except Exception as e:
             logger.error(f"Error validating settings: {str(e)}")
+            return {"error": str(e)}
+
+    def start_monitoring(self, interval: float, delta_threshold: float) -> Dict:
+        """Start automated monitoring of positions"""
+        try:
+            self.hedge_interval = interval
+            self.delta_threshold = delta_threshold
+            self.monitoring_active = True
+            self.last_check_time = datetime.now()
+
+            return {
+                "status": "success",
+                "message": "Monitoring started",
+                "settings": {"interval": interval, "delta_threshold": delta_threshold},
+            }
+        except Exception as e:
+            logger.error(f"Failed to start monitoring: {str(e)}")
             return {"error": str(e)}

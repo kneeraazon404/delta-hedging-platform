@@ -58,23 +58,41 @@ class IGClient:
         if missing:
             raise ValueError(f"Missing IG API credentials: {', '.join(missing)}")
 
+    def _handle_rate_limit(self, response: requests.Response) -> bool:
+        """Handle rate limiting errors"""
+        if response.status_code == 429:
+            retry_after = int(response.headers.get("Retry-After", 60))
+            logger.warning(f"Rate limit exceeded, waiting {retry_after} seconds")
+            time.sleep(retry_after)
+            return True
+
+        error_code = response.json().get("errorCode", "")
+        if (
+            "exceeded-api-key-allowance" in error_code
+            or "exceeded-account-allowance" in error_code
+        ):
+            logger.warning(f"API limit exceeded: {error_code}")
+            time.sleep(60)  # Wait for 1 minute
+            return True
+
+        return False
+
     def _handle_response(self, response: requests.Response, operation: str) -> Dict:
-        """Handle API response and errors"""
+        """Handle API response with rate limiting"""
         try:
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
+            if self._handle_rate_limit(response):
+                return {"error": "Rate limit exceeded, please try again"}
+
+            if response.status_code in [200, 201]:
+                return response.json()
+
             error_msg = f"{operation} failed with status {response.status_code}: {response.text}"
             logger.error(error_msg)
-            return {"error": error_msg, "status_code": response.status_code}
-        except requests.exceptions.JSONDecodeError as e:
-            error_msg = f"Invalid JSON response for {operation}: {str(e)}"
-            logger.error(error_msg)
             return {"error": error_msg}
+
         except Exception as e:
-            error_msg = f"Error handling response for {operation}: {str(e)}"
-            logger.error(error_msg)
-            return {"error": error_msg}
+            logger.error(f"Error handling response for {operation}: {str(e)}")
+            return {"error": str(e)}
 
     def _check_token_expiry(self) -> bool:
         """Check if authentication token needs refresh"""
@@ -211,33 +229,26 @@ class IGClient:
 
     def create_position(
         self,
-        direction: Union[OrderDirection, str],
         epic: str,
+        direction: OrderDirection,
         size: float,
-        order_type: Union[OrderType, str] = OrderType.MARKET,
+        order_type: OrderType = OrderType.MARKET,
     ) -> Dict:
-        """Create a new position"""
+        """Create a new position with proper validation"""
         try:
-            # Convert string enums if necessary
-            if isinstance(direction, str):
-                direction = OrderDirection(direction)
-            if isinstance(order_type, str):
-                order_type = OrderType(order_type)
-
             data = {
                 "epic": epic,
                 "expiry": "-",
                 "direction": direction.value,
-                "size": str(float(size)),  # Ensure size is valid float
+                "size": str(size),
                 "orderType": order_type.value,
                 "timeInForce": "FILL_OR_KILL",
                 "guaranteedStop": False,
                 "forceOpen": True,
+                "currencyCode": "GBP",  # Add required currency code
+                "limitLevel": None,
+                "stopLevel": None,
             }
-
-            if self._check_token_expiry():
-                if not self.login():
-                    return {"error": "Failed to refresh authentication"}
 
             response = self.session.post(
                 f"{self.base_url}/positions/otc",
@@ -248,14 +259,9 @@ class IGClient:
 
             return self._handle_response(response, "Create position")
 
-        except ValueError as e:
-            error_msg = f"Invalid parameter values: {str(e)}"
-            logger.error(error_msg)
-            return {"error": error_msg}
         except Exception as e:
-            error_msg = f"Failed to create position: {str(e)}"
-            logger.error(error_msg)
-            return {"error": error_msg}
+            logger.error(f"Failed to create position: {str(e)}")
+            return {"error": str(e)}
 
     def _rate_limit(self) -> None:
         """Implement rate limiting"""
