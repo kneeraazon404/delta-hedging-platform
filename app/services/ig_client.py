@@ -233,22 +233,44 @@ class IGClient:
         direction: OrderDirection,
         size: float,
         order_type: OrderType = OrderType.MARKET,
+        limit_level: Optional[float] = None,
     ) -> Dict:
         """Create a new position with proper validation"""
         try:
+            # Get current market data for price levels
+            market_data = self.get_market_data(epic)
+            if not market_data:
+                return {"error": "Failed to get market data"}
+
+            current_price = market_data.get("price", 0)
+
+            # Base position data
             data = {
                 "epic": epic,
                 "expiry": "-",
                 "direction": direction.value,
                 "size": str(size),
+                "currencyCode": "GBP",
+                "forceOpen": True,
                 "orderType": order_type.value,
                 "timeInForce": "FILL_OR_KILL",
                 "guaranteedStop": False,
-                "forceOpen": True,
-                "currencyCode": "GBP",  # Add required currency code
-                "limitLevel": None,
-                "stopLevel": None,
             }
+
+            # Add fields based on order type
+            if order_type == OrderType.MARKET:
+                # For market orders, don't set any price levels
+                pass
+            else:  # LIMIT order
+                price_level = limit_level or current_price
+                # For limit orders, use either limitLevel or limitDistance, not both
+                data.update(
+                    {
+                        "level": str(price_level),
+                        "limitLevel": str(price_level),
+                        # Don't set limitDistance when using limitLevel
+                    }
+                )
 
             response = self.session.post(
                 f"{self.base_url}/positions/otc",
@@ -257,7 +279,33 @@ class IGClient:
                 timeout=30,
             )
 
-            return self._handle_response(response, "Create position")
+            result = self._handle_response(response, "Create position")
+
+            # Handle market orders not supported
+            if "error" in result and "market-orders.not-supported" in result.get(
+                "error", ""
+            ):
+
+                # Switch to LIMIT order
+                data["orderType"] = OrderType.LIMIT.value
+                price_level = current_price
+                data.update(
+                    {
+                        "level": str(price_level),
+                        "limitLevel": str(price_level),
+                        # Don't include mutually exclusive fields
+                    }
+                )
+
+                response = self.session.post(
+                    f"{self.base_url}/positions/otc",
+                    headers=self.get_headers(),
+                    json=data,
+                    timeout=30,
+                )
+                return self._handle_response(response, "Create limit position")
+
+            return result
 
         except Exception as e:
             logger.error(f"Failed to create position: {str(e)}")

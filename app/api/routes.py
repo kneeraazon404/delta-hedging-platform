@@ -341,3 +341,58 @@ def get_position_analytics(position_id: str) -> ApiResponse:
     except Exception as e:
         logger.error(f"Error getting analytics for position {position_id}: {str(e)}")
         return jsonify({"error": str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@app.route("/api/hedge/all", methods=["POST"])
+def hedge_all_positions() -> ApiResponse:
+    """Hedge all positions that need hedging"""
+    try:
+        positions_status = hedger.get_all_positions_status()
+        if "error" in positions_status:
+            return jsonify(positions_status), HTTPStatus.BAD_REQUEST
+
+        results = []
+        for pos_id, status in positions_status.items():
+            if status.get("needs_hedge", False):
+                result = hedger.hedge_position(pos_id, force_hedge=True)
+                results.append({"position_id": pos_id, "result": result})
+
+        if not results:
+            return (
+                jsonify(
+                    {
+                        "message": "No positions require hedging",
+                        "positions_checked": len(positions_status),
+                    }
+                ),
+                HTTPStatus.OK,
+            )
+
+        return jsonify(
+            {"message": f"Hedged {len(results)} positions", "results": results}
+        )
+
+    except Exception as e:
+        logger.error(f"Error hedging all positions: {str(e)}")
+        return jsonify({"error": str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+@app.route("/api/positions/sold", methods=["GET"])
+def get_sold_positions() -> ApiResponse:
+    """Get all sold positions"""
+    try:
+        result = hedger.get_sold_positions()
+        if "error" in result:
+            return jsonify(result), HTTPStatus.BAD_REQUEST
+
+        if not result["positions"]:
+            return (
+                jsonify({"message": "No sold positions found", "positions": []}),
+                HTTPStatus.OK,
+            )
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error getting sold positions: {str(e)}")
+        return jsonify({"error": str(e)}), HTTPStatus.INTERNAL_SERVER_ERROR

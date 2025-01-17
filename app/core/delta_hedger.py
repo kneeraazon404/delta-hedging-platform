@@ -392,3 +392,32 @@ class DeltaHedger:
         except Exception as e:
             logger.error(f"Failed to start monitoring: {str(e)}")
             return {"error": str(e)}
+
+    # Add to DeltaHedger class
+    def get_sold_positions(self) -> Dict:
+        """Get all sold positions"""
+        try:
+            positions_data = self.ig_client.get_positions()
+            if "error" in positions_data:
+                return {"error": positions_data["error"]}
+
+            sold_positions = []
+            for pos_data in positions_data.get("positions", []):
+                try:
+                    position = Position.from_dict(pos_data)
+                    if position and position.direction.upper() == "SELL":
+                        metrics = self.calculate_position_metrics(position)
+                        delta_info = self.calculate_position_delta(position)
+
+                        position_dict = position.to_dict()
+                        position_dict.update({"metrics": metrics, "delta": delta_info})
+                        sold_positions.append(position_dict)
+                except Exception as e:
+                    logger.error(f"Error processing sold position: {str(e)}")
+                    continue
+
+            return {"positions": sold_positions, "count": len(sold_positions)}
+
+        except Exception as e:
+            logger.error(f"Error getting sold positions: {str(e)}")
+            return {"error": str(e)}
