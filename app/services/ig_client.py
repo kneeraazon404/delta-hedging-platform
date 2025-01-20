@@ -27,14 +27,9 @@ class IGClient:
         self.password = os.getenv("IG_PASSWORD")
         self.acc_type = os.getenv("IG_ACC_TYPE", "DEMO")
 
-        # Account IDs
-        self.options_account = os.getenv("IG_OPTIONS_ACCOUNT")
-        self.cfd_account = os.getenv("IG_CFD_ACCOUNT")
-        self.current_account = self.options_account  # Default to OPTIONS account
-
-        logger.info(
-            f"Initializing IG Client with OPTIONS account: {self.options_account}, CFD account: {self.cfd_account}"
-        )
+        # Account ID
+        self.account_id = os.getenv("IG_OPTIONS_ACCOUNT")
+        logger.info(f"Initializing IG Client with account ID: {self.account_id}")
 
         # Authentication tokens
         self.security_token: Optional[str] = None
@@ -62,6 +57,8 @@ class IGClient:
             missing.append("IG_USERNAME")
         if not self.password:
             missing.append("IG_PASSWORD")
+        if not self.account_id:
+            missing.append("IG_OPTIONS_ACCOUNT")
 
         if missing:
             raise ValueError(f"Missing IG API credentials: {', '.join(missing)}")
@@ -108,47 +105,6 @@ class IGClient:
             return True
         return datetime.now() >= self.token_expiry
 
-    def switch_account(self, account_type: str) -> bool:
-        """Switch between OPTIONS and CFD accounts"""
-        try:
-            account_id = (
-                self.options_account if account_type == "OPTIONS" else self.cfd_account
-            )
-
-            if not account_id:
-                logger.error(f"No account ID found for {account_type}")
-                return False
-
-            logger.info(
-                f"Attempting to switch to {account_type} account (ID: {account_id})"
-            )
-
-            # Log current state
-            logger.debug(f"Current account before switch: {self.current_account}")
-
-            # Switch account using PUT /session
-            response = self.session.put(
-                f"{self.base_url}/session",
-                headers=self.get_headers(),
-                json={"accountId": account_id},
-                timeout=30,
-            )
-
-            if response.status_code == 200:
-                old_account = self.current_account
-                self.current_account = account_id
-                logger.info(
-                    f"Successfully switched from account {old_account} to {account_type} account: {account_id}"
-                )
-                return True
-
-            logger.error(f"Failed to switch account: {response.text}")
-            return False
-
-        except Exception as e:
-            logger.error(f"Error switching account: {str(e)}")
-            return False
-
     def login(self) -> bool:
         """Authenticate with IG API"""
         try:
@@ -175,11 +131,49 @@ class IGClient:
                 self.cst = response.headers.get("CST")
                 self.token_expiry = datetime.now() + timedelta(hours=6)
 
-                # Switch to default OPTIONS account after login
-                if self.options_account:
-                    self.switch_account("OPTIONS")
-
                 logger.info("Successfully logged in to IG API")
+
+                # Get available accounts
+                accounts_response = self.session.get(
+                    f"{self.base_url}/accounts", headers=self.get_headers(), timeout=30
+                )
+
+                if accounts_response.status_code == 200:
+                    accounts = accounts_response.json().get("accounts", [])
+                    logger.debug(f"Available accounts: {accounts}")
+
+                    # Find matching account
+                    matching_account = next(
+                        (
+                            acc
+                            for acc in accounts
+                            if acc.get("accountId") == self.account_id
+                        ),
+                        None,
+                    )
+
+                    if matching_account:
+                        # Set the account
+                        switch_response = self.session.put(
+                            f"{self.base_url}/session",
+                            headers=self.get_headers(),
+                            json={"accountId": self.account_id},
+                            timeout=30,
+                        )
+
+                        if switch_response.status_code in [200, 204]:
+                            logger.info(
+                                f"Successfully set account to {self.account_id}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Could not set account. Will continue with default. Status: {switch_response.status_code}"
+                            )
+                    else:
+                        logger.warning(
+                            f"Account {self.account_id} not found in available accounts. Will continue with default account."
+                        )
+
                 return True
 
             logger.error(f"Login failed: {response.text}")
@@ -192,13 +186,54 @@ class IGClient:
             logger.error(f"Login error: {str(e)}")
             return False
 
+    def _process_position_data(self, position_data: Dict) -> Dict:
+        """Process and validate position data before creating Position object"""
+        try:
+            # Extract market data
+            market_data = position_data.get("market", {})
+
+            # Log raw data for debugging
+            logger.debug(f"Raw position data: {position_data}")
+
+            # Check if this is a currency position
+            instrument_type = market_data.get("instrumentType", "").upper()
+            if instrument_type in ["CURRENCIES", "FOREX"]:
+                # For currency positions, set a default CALL type
+                market_data["instrumentType"] = "CALL"
+                position_data["market"] = market_data
+                logger.info(f"Processing currency position: {market_data.get('epic')}")
+                return position_data
+
+            # For other instruments, determine option type
+            instrument_name = market_data.get("instrumentName", "")
+            logger.debug(f"Processing position with instrument name: {instrument_name}")
+
+            # Default to CALL if can't determine
+            option_type = "CALL"
+            if instrument_name:
+                if "PUT" in instrument_name.upper():
+                    option_type = "PUT"
+                elif "CALL" in instrument_name.upper():
+                    option_type = "CALL"
+
+            # Update the market data
+            market_data["instrumentType"] = option_type
+            position_data["market"] = market_data
+
+            return position_data
+
+        except Exception as e:
+            logger.error(f"Error processing position data: {str(e)}")
+            logger.debug(f"Problematic position data: {position_data}")
+            return position_data
+
     def get_positions(self) -> Dict:
         """Get all positions from IG API"""
         if self.use_mock:
             return {"positions": []}
 
         try:
-            logger.info(f"Fetching positions for account: {self.current_account}")
+            logger.info(f"Fetching positions for account: {self.account_id}")
 
             if self._check_token_expiry():
                 if not self.login():
@@ -213,33 +248,30 @@ class IGClient:
             if "error" in positions_data:
                 return positions_data
 
-            # Log position count
-            position_count = len(positions_data.get("positions", []))
-            logger.info(
-                f"Found {position_count} positions for account {self.current_account}"
-            )
-
-            # Get detailed information for each position
+            # Process each position
+            processed_positions = []
             for position in positions_data.get("positions", []):
-                deal_id = position.get("position", {}).get("dealId")
-                if not deal_id:
+                try:
+                    # Process and validate position data
+                    processed_position = self._process_position_data(position)
+                    processed_positions.append(processed_position)
+                except Exception as e:
+                    logger.error(f"Error processing position: {str(e)}")
                     continue
 
-                logger.debug(f"Fetching details for position {deal_id}")
-                details_response = self.session.get(
-                    f"{self.base_url}/positions/{deal_id}",
-                    headers=self.get_headers(),
-                    timeout=30,
-                )
+            positions_data["positions"] = processed_positions
 
-                if details_response.status_code == 200:
-                    position["details"] = details_response.json()
+            # Log position count
+            position_count = len(processed_positions)
+            logger.info(
+                f"Found {position_count} positions for account {self.account_id}"
+            )
 
             return positions_data
 
         except requests.exceptions.RequestException as e:
             error_msg = (
-                f"Failed to get positions for account {self.current_account}: {str(e)}"
+                f"Failed to get positions for account {self.account_id}: {str(e)}"
             )
             logger.error(error_msg)
             return {"error": error_msg}
@@ -306,7 +338,7 @@ class IGClient:
         """Create a new position with proper validation"""
         try:
             logger.info(
-                f"Creating position on account {self.current_account}: {epic} {direction.value} {size}"
+                f"Creating position on account {self.account_id}: {epic} {direction.value} {size}"
             )
 
             # Get current market data for price levels
@@ -317,56 +349,21 @@ class IGClient:
             current_price = market_data.get("price", 0)
             logger.debug(f"Current market price for {epic}: {current_price}")
 
-            # Base position data
-            data = {
-                "epic": epic,
-                "expiry": "-",
-                "direction": direction.value,
-                "size": str(size),
-                "currencyCode": "GBP",
-                "forceOpen": True,
-                "orderType": order_type.value,
-                "timeInForce": "FILL_OR_KILL",
-                "guaranteedStop": False,
-            }
-
-            # Add fields based on order type
+            # Try MARKET order first
             if order_type == OrderType.MARKET:
-                logger.debug("Using MARKET order type")
-                pass
-            else:  # LIMIT order
-                price_level = limit_level or current_price
-                logger.debug(f"Using LIMIT order type with price level: {price_level}")
-                data.update(
-                    {
-                        "level": str(price_level),
-                        "limitLevel": str(price_level),
-                    }
-                )
-
-            response = self.session.post(
-                f"{self.base_url}/positions/otc",
-                headers=self.get_headers(),
-                json=data,
-                timeout=30,
-            )
-
-            result = self._handle_response(response, "Create position")
-
-            # Handle market orders not supported
-            if "error" in result and "market-orders.not-supported" in result.get(
-                "error", ""
-            ):
-                logger.info("Market orders not supported, switching to LIMIT order")
-                # Switch to LIMIT order
-                data["orderType"] = OrderType.LIMIT.value
-                price_level = current_price
-                data.update(
-                    {
-                        "level": str(price_level),
-                        "limitLevel": str(price_level),
-                    }
-                )
+                logger.debug("Attempting MARKET order")
+                # Base position data for MARKET order
+                data = {
+                    "epic": epic,
+                    "expiry": "-",
+                    "direction": direction.value,
+                    "size": str(size),
+                    "currencyCode": "GBP",
+                    "forceOpen": True,
+                    "orderType": OrderType.MARKET.value,
+                    "timeInForce": "FILL_OR_KILL",
+                    "guaranteedStop": False,
+                }
 
                 response = self.session.post(
                     f"{self.base_url}/positions/otc",
@@ -374,9 +371,49 @@ class IGClient:
                     json=data,
                     timeout=30,
                 )
-                return self._handle_response(response, "Create limit position")
 
-            return result
+                result = self._handle_response(response, "Create position")
+
+                # If market order not supported, switch to LIMIT
+                if "error" in result and "market-orders.not-supported" in result.get(
+                    "error", ""
+                ):
+                    logger.info("Market orders not supported, switching to LIMIT order")
+                    order_type = OrderType.LIMIT
+                else:
+                    return result
+
+            # Handle LIMIT order
+            if order_type == OrderType.LIMIT:
+                logger.debug("Using LIMIT order")
+                price_level = limit_level or current_price
+
+                # Create LIMIT order data
+                data = {
+                    "epic": epic,
+                    "expiry": "-",
+                    "direction": direction.value,
+                    "size": str(size),
+                    "currencyCode": "GBP",
+                    "forceOpen": True,
+                    "orderType": OrderType.LIMIT.value,
+                    "level": str(price_level),
+                    "timeInForce": "FILL_OR_KILL",
+                    "guaranteedStop": False,
+                }
+
+                logger.debug(f"Sending LIMIT order with price level: {price_level}")
+                response = self.session.post(
+                    f"{self.base_url}/positions/otc",
+                    headers=self.get_headers(),
+                    json=data,
+                    timeout=30,
+                )
+
+                result = self._handle_response(response, "Create limit position")
+                return result
+
+            return {"error": "Unknown order type"}
 
         except Exception as e:
             logger.error(f"Failed to create position: {str(e)}")

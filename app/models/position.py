@@ -1,9 +1,12 @@
 # app/models/position.py
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Union
 
 from .enums import OptionType, OrderDirection
 from .hedge_record import HedgeRecord
+
+logger = logging.getLogger(__name__)
 
 
 class Position:
@@ -20,10 +23,21 @@ class Position:
 
         # Basic position information
         self.strike = float(data.get("strike", 0))
-        option_type_raw = data.get("option_type", "CALL")
-        self.option_type = OptionType(
-            option_type_raw.upper() if isinstance(option_type_raw, str) else "CALL"
-        )
+
+        # Handle option type with better validation
+        option_type_raw = str(data.get("option_type", "CALL")).upper().strip()
+        try:
+            # Only accept CALL or PUT
+            if option_type_raw not in ["CALL", "PUT"]:
+                logger.warning(
+                    f"Invalid option type '{option_type_raw}', defaulting to CALL"
+                )
+                option_type_raw = "CALL"
+            self.option_type = OptionType(option_type_raw)
+        except ValueError as e:
+            logger.warning(f"Error setting option type: {str(e)}, defaulting to CALL")
+            self.option_type = OptionType.CALL
+
         self.direction = data.get("direction", "SELL")
         self.contract_size = float(data.get("contract_size", 1.0))
         self.size = float(data.get("size", data.get("contracts", 0)))
@@ -50,9 +64,7 @@ class Position:
         self.last_hedge_price: Optional[float] = data.get("last_hedge_price")
         self.last_hedge_time: Optional[str] = data.get("last_hedge_time")
         self.hedge_history: List[HedgeRecord] = []
-        self.strike = float(data.get("strike", 0.0))
-        if self.strike <= 0:
-            self.strike = float(data.get("market_data", {}).get("strike", 1.0))
+
         # Position state
         self.is_active = bool(data.get("is_active", True))
         self.deal_id = data.get("deal_id")
@@ -68,14 +80,41 @@ class Position:
             if not position_data or not market_data:
                 raise ValueError("Invalid position data structure")
 
+            # Log raw data for debugging
+            logger.debug(f"Processing position data: {data}")
+
+            # Handle option type for both currency and option positions
+            instrument_type = market_data.get("instrumentType", "").upper()
+            instrument_name = market_data.get("instrumentName", "")
+
+            # Default to CALL
+            option_type = "CALL"
+
+            # For currency positions, force CALL type
+            if instrument_type in ["CURRENCIES", "FOREX", "BINARY"]:
+                logger.debug(
+                    f"Processing {instrument_type} position, using default CALL type"
+                )
+            else:
+                # For actual options, try to determine type from name
+                if "PUT" in instrument_name.upper():
+                    option_type = "PUT"
+                elif "CALL" in instrument_name.upper():
+                    option_type = "CALL"
+                logger.debug(
+                    f"Determined option type: {option_type} from instrument name: {instrument_name}"
+                )
+
             processed_data = {
                 "epic": market_data.get("epic"),
-                "strike": market_data.get("strike", 0),
-                "option_type": market_data.get("instrumentName", "CALL").split()[-1],
+                "strike": float(
+                    market_data.get("strike", 0) or position_data.get("level", 0)
+                ),
+                "option_type": option_type,
                 "direction": position_data.get("direction", "SELL"),
-                "contract_size": position_data.get("contractSize", 1.0),
-                "size": position_data.get("size", 0),
-                "level": position_data.get("level", 0),
+                "contract_size": float(position_data.get("contractSize", 1.0)),
+                "size": float(position_data.get("size", 0)),
+                "level": float(position_data.get("level", 0)),
                 "expiry": market_data.get("expiry"),
                 "deal_id": position_data.get("dealId"),
                 "time_to_expiry": cls._calculate_time_to_expiry(
@@ -87,8 +126,12 @@ class Position:
             if not processed_data["epic"]:
                 raise ValueError("Missing epic in market data")
 
+            logger.debug(f"Processed position data: {processed_data}")
             return cls(processed_data)
+
         except Exception as e:
+            logger.error(f"Error creating Position from dict: {str(e)}")
+            logger.debug(f"Problematic data: {data}")
             raise ValueError(f"Error creating Position from dict: {str(e)}")
 
     @classmethod

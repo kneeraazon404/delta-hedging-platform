@@ -47,8 +47,9 @@ def start_monitoring() -> ApiResponse:
     """Start automated position monitoring and delta hedging"""
     try:
         data = validate_json_request()
+        if not data:
+            return jsonify({"error": "Invalid request data"}), HTTPStatus.BAD_REQUEST
 
-        # Get monitoring parameters with defaults
         monitor_interval = float(
             data.get("interval", _hedge_settings["hedge_interval"])
         )
@@ -56,7 +57,6 @@ def start_monitoring() -> ApiResponse:
             data.get("delta_threshold", _hedge_settings["delta_threshold"])
         )
 
-        # Validate parameters
         if monitor_interval <= 0:
             return (
                 jsonify({"error": "Invalid monitoring interval"}),
@@ -65,7 +65,6 @@ def start_monitoring() -> ApiResponse:
         if delta_threshold <= 0:
             return jsonify({"error": "Invalid delta threshold"}), HTTPStatus.BAD_REQUEST
 
-        # Start monitoring with parameters
         result = hedger.start_monitoring(
             interval=monitor_interval, delta_threshold=delta_threshold
         )
@@ -84,7 +83,6 @@ def start_monitoring() -> ApiResponse:
 def list_positions() -> ApiResponse:
     """Get all positions with delta calculations"""
     try:
-        # Get positions from IG
         positions_response = ig_client.get_positions()
         if "error" in positions_response:
             return (
@@ -99,7 +97,6 @@ def list_positions() -> ApiResponse:
                 HTTPStatus.OK,
             )
 
-        # Calculate metrics for each position
         positions_data = []
         total_delta = 0.0
         total_exposure = 0.0
@@ -127,7 +124,6 @@ def list_positions() -> ApiResponse:
                 logger.error(f"Error processing position: {str(e)}")
                 continue
 
-        # Group positions by instrument
         positions_by_instrument = {}
         for pos in positions_data:
             instrument = pos.get("epic", "unknown")
@@ -170,6 +166,36 @@ def get_position(position_id: str) -> ApiResponse:
             return jsonify({"error": "Position not found"}), HTTPStatus.NOT_FOUND
 
         try:
+            if not position.epic or not isinstance(position.epic, str):
+                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+
+            if not isinstance(position.epic, str):
+                return (
+                    jsonify({"error": "Invalid or missing epic value"}),
+                    HTTPStatus.BAD_REQUEST,
+                )
+
+            if not position.epic or not isinstance(position.epic, str):
+                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+
+            if not position.epic or not isinstance(position.epic, str):
+                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+
+            if not position.epic or not isinstance(position.epic, str):
+                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+
+            if not position.epic or not isinstance(position.epic, str):
+                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+
+            if not position.epic or not isinstance(position.epic, str):
+                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+
+            if not position.epic or not isinstance(position.epic, str):
+                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+
+            if not position.epic or not isinstance(position.epic, str):
+                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+
             market_data = ig_client.get_market_data(position.epic)
             if not market_data:
                 return (
@@ -177,7 +203,6 @@ def get_position(position_id: str) -> ApiResponse:
                     HTTPStatus.SERVICE_UNAVAILABLE,
                 )
 
-            # Calculate metrics
             delta_info = hedger.calculate_position_delta(position)
             metrics = hedger.calculate_position_metrics(position)
 
@@ -208,19 +233,26 @@ def hedge_position(position_id: str) -> ApiResponse:
     """Manually trigger hedging for a position"""
     try:
         data = validate_json_request()
-        force_hedge = bool(data.get("force", False))
+        if not data:
+            return jsonify({"error": "Invalid request data"}), HTTPStatus.BAD_REQUEST
 
-        # Use hedge_size instead of custom_hedge_size
+        force_hedge = bool(data.get("force", False))
+        hedge_size = None
+        if "hedge_size" in data:
+            try:
+                hedge_size = float(data["hedge_size"])
+            except (ValueError, TypeError):
+                return jsonify({"error": "Invalid hedge size"}), HTTPStatus.BAD_REQUEST
+
         result = hedger.hedge_position(
             position_id=position_id,
             force_hedge=force_hedge,
-            hedge_size=float(data["hedge_size"]) if "hedge_size" in data else None,
+            hedge_size=hedge_size,
         )
 
         if "error" in result:
             return jsonify(result), HTTPStatus.BAD_REQUEST
 
-        # Get updated position info
         position = hedger.get_position(position_id)
         if position:
             result["updated_position"] = position.to_dict()
@@ -245,7 +277,6 @@ def get_hedge_status() -> ApiResponse:
         positions_needing_hedge = sum(
             1 for p in positions_status.values() if p.get("needs_hedge", False)
         )
-
         total_exposure = sum(
             p.get("metrics", {}).get("exposure", 0) for p in positions_status.values()
         )
@@ -274,6 +305,11 @@ def handle_settings() -> ApiResponse:
     try:
         if request.method == "POST":
             data = validate_json_request()
+            if not data:
+                return (
+                    jsonify({"error": "Invalid request data"}),
+                    HTTPStatus.BAD_REQUEST,
+                )
             validation_result = hedger.validate_settings(data)
 
             if "error" in validation_result:
@@ -310,7 +346,7 @@ def get_position_analytics(position_id: str) -> ApiResponse:
         if not position:
             return jsonify({"error": "Position not found"}), HTTPStatus.NOT_FOUND
 
-        market_data = ig_client.get_market_data(position.epic)
+        market_data = ig_client.get_market_data(position.epic)  # type: ignore
         if not market_data:
             return (
                 jsonify({"error": "Failed to fetch market data"}),
