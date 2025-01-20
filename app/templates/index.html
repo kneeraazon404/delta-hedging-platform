@@ -193,12 +193,38 @@
         </div>
     </div>
 
+    <!-- Confirmation Modal -->
+    <div id="confirmationModal" class="modal">
+        <div class="modal-content max-w-lg">
+            <span class="close-modal" onclick="hideConfirmationModal()">&times;</span>
+            <h2 class="text-xl font-bold mb-4">Confirm Manual Hedging</h2>
+            <div class="mb-4">
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4">
+                    <p class="font-medium">Premium threshold hasn't been reached.</p>
+                    <p class="mt-2">This position currently doesn't require hedging based on your settings. Are you sure you want to proceed with manual hedging?</p>
+                </div>
+                <div class="mt-4 text-gray-600">
+                    <p>Current position metrics:</p>
+                    <pre id="confirmationMetrics" class="mt-2 p-3 bg-gray-50 rounded text-sm"></pre>
+                </div>
+            </div>
+            <div class="flex justify-end space-x-4 mt-6">
+                <button onclick="hideConfirmationModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition">
+                    Cancel
+                </button>
+                <button id="confirmHedgeBtn" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+                    Proceed with Hedging
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notification -->
     <div id="toast" class="toast"></div>
 
-<script>
+    <script>
     // Configuration
-    const BASE_URL = "http://13.60.29.20/api";
+    const BASE_URL = "http://localhost:8000/api";
     const DEFAULT_SETTINGS = {
         min_hedge_size: 0.02,
         max_hedge_size: 50.0,
@@ -210,11 +236,14 @@
     let currentSettings = { ...DEFAULT_SETTINGS };
     let isLoading = false;
     let monitoringInterval = null;
+    let pendingHedgePosition = null;
+    let pendingHedgeData = null;
 
     // DOM Elements
     const responseDisplay = document.getElementById('responseDisplay');
     const settingsForm = document.getElementById('settingsForm');
     const modal = document.getElementById('settingsModal');
+    const confirmationModal = document.getElementById('confirmationModal');
     const toast = document.getElementById('toast');
 
     // Toast notification
@@ -235,6 +264,27 @@
         loader.innerHTML = 'Loading...';
         responseDisplay.insertBefore(loader, responseDisplay.firstChild);
         return loader;
+    }
+
+    // Confirmation Modal Functions
+    function showConfirmationModal(positionId, positionData) {
+        const metricsDisplay = document.getElementById('confirmationMetrics');
+        const metrics = {
+            delta: positionData.analysis.delta.delta.toFixed(4),
+            premium: positionData.position.premium,
+            pnl: positionData.analysis.metrics.pnl
+        };
+        metricsDisplay.textContent = JSON.stringify(metrics, null, 2);
+        
+        confirmationModal.style.display = 'block';
+        pendingHedgePosition = positionId;
+        pendingHedgeData = positionData;
+    }
+
+    function hideConfirmationModal() {
+        confirmationModal.style.display = 'none';
+        pendingHedgePosition = null;
+        pendingHedgeData = null;
     }
 
     // API Calls
@@ -272,48 +322,49 @@
             isLoading = false;
         }
     }
-function displayResponse(data) {
-    const timestamp = new Date().toLocaleTimeString();
-    let content = `
-        <div class="p-4 border rounded bg-white mb-4 shadow-sm">
-            <div class="flex justify-between items-center text-sm text-gray-600 mb-2">
-                <span>${timestamp}</span>
-                <span class="text-xs">${data.status || ''}</span>
-            </div>
-        `;
 
-    if (data.error) {
-        content += `
-            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
-                ${data.message || data.error}
-            </div>
-        `;
-    }
-
-    if (data.greeks) {
-        content += `
-            <div class="mb-4 p-4 bg-blue-50 rounded">
-                <h3 class="font-semibold mb-2">Greeks:</h3>
-                <div class="grid grid-cols-2 gap-2 text-sm">
-                    <div>Delta: ${data.greeks.delta.toFixed(4)}</div>
-                    <div>Gamma: ${data.greeks.gamma.toFixed(4)}</div>
-                    <div>Theta: ${data.greeks.theta.toFixed(4)}</div>
-                    <div>Vega: ${data.greeks.vega.toFixed(4)}</div>
+    function displayResponse(data) {
+        const timestamp = new Date().toLocaleTimeString();
+        let content = `
+            <div class="p-4 border rounded bg-white mb-4 shadow-sm">
+                <div class="flex justify-between items-center text-sm text-gray-600 mb-2">
+                    <span>${timestamp}</span>
+                    <span class="text-xs">${data.status || ''}</span>
                 </div>
+            `;
+
+        if (data.error) {
+            content += `
+                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+                    ${data.message || data.error}
+                </div>
+            `;
+        }
+
+        if (data.greeks) {
+            content += `
+                <div class="mb-4 p-4 bg-blue-50 rounded">
+                    <h3 class="font-semibold mb-2">Greeks:</h3>
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        <div>Delta: ${data.greeks.delta.toFixed(4)}</div>
+                        <div>Gamma: ${data.greeks.gamma.toFixed(4)}</div>
+                        <div>Theta: ${data.greeks.theta.toFixed(4)}</div>
+                        <div>Vega: ${data.greeks.vega.toFixed(4)}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Format data for better readability
+        const formattedData = typeof data === 'object' ? JSON.stringify(data, null, 2) : data;
+        content += `
+                <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${formattedData}</pre>
             </div>
         `;
+
+        responseDisplay.innerHTML = content;
     }
 
-    // Format data for better readability
-    const formattedData = typeof data === 'object' ? JSON.stringify(data, null, 2) : data;
-    content += `
-            <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${formattedData}</pre>
-        </div>
-    `;
-
-    // Replace content instead of appending
-    responseDisplay.innerHTML = content;
-}
     // Modal Management
     function showModal() {
         modal.style.display = 'block';
@@ -324,6 +375,27 @@ function displayResponse(data) {
         modal.style.display = 'none';
     }
 
+    // Hedging Functions
+    async function proceedWithHedging() {
+        if (!pendingHedgePosition) return;
+        
+        const response = await makeApiCall(`/hedge/${pendingHedgePosition}`, {
+            method: 'POST',
+            data: { 
+                force: true,
+                ignore_threshold: true
+            }
+        });
+
+        hideConfirmationModal();
+
+        if (!response.error) {
+            showToast('Manual hedge executed successfully');
+            // Refresh hedge status
+            await makeApiCall('/hedge/status');
+        }
+    }
+
     // Settings Management
     function loadSettingsIntoForm() {
         document.getElementById('minHedgeSize').value = currentSettings.min_hedge_size || DEFAULT_SETTINGS.min_hedge_size;
@@ -332,16 +404,35 @@ function displayResponse(data) {
         document.getElementById('deltaThreshold').value = currentSettings.delta_threshold || DEFAULT_SETTINGS.delta_threshold;
     }
 
-    async function loadSettings() {
-        const response = await makeApiCall('/settings');
-        if (!response.error) {
-            currentSettings = response.settings;
-            loadSettingsIntoForm();
-            showToast('Settings loaded successfully');
+    // Event Listeners
+    document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
+        const positionId = document.getElementById('hedgePositionId').value;
+        if (!positionId) {
+            showToast('Please enter a Position ID', 'error');
+            return;
         }
-    }
 
-    async function saveSettings(event) {
+        // First check position status
+        const checkResponse = await makeApiCall(`/positions/${positionId}`);
+        if (checkResponse.error) return;
+
+        const needsHedge = checkResponse.analysis?.delta?.needs_hedge;
+        
+        if (!needsHedge) {
+            // Show confirmation modal if threshold not reached
+            showConfirmationModal(positionId, checkResponse);
+        } else {
+            // Proceed with normal hedging if threshold reached
+            await makeApiCall(`/hedge/${positionId}`, {
+                method: 'POST',
+                data: { force: true }
+            });
+        }
+    });
+
+    document.getElementById('confirmHedgeBtn').addEventListener('click', proceedWithHedging);
+
+    document.getElementById('settingsForm').addEventListener('submit', async (event) => {
         event.preventDefault();
         
         const settings = {
@@ -351,7 +442,6 @@ function displayResponse(data) {
             delta_threshold: parseFloat(document.getElementById('deltaThreshold').value)
         };
 
-        // Validate settings
         if (settings.min_hedge_size >= settings.max_hedge_size) {
             showToast('Minimum hedge size must be less than maximum hedge size', 'error');
             return;
@@ -372,7 +462,44 @@ function displayResponse(data) {
             hideModal();
             showToast('Settings updated successfully');
         }
-    }
+    });
+
+    // Initialize other event listeners
+    document.getElementById('listPositionsBtn').addEventListener('click', () => makeApiCall('/positions'));
+    document.getElementById('getSoldPositionsBtn').addEventListener('click', () => makeApiCall('/positions/sold'));
+    document.getElementById('getPositionBtn').addEventListener('click', () => {
+        const positionId = document.getElementById('positionId').value;
+        if (!positionId) {
+            showToast('Please enter a Position ID', 'error');
+            return;
+        }
+        makeApiCall(`/positions/${positionId}`);
+    });
+    document.getElementById('getAnalyticsBtn').addEventListener('click', () => {
+        const positionId = document.getElementById('positionId').value;
+        if (!positionId) {
+            showToast('Please enter a Position ID', 'error');
+            return;
+        }
+        makeApiCall(`/analytics/${positionId}`);
+    });
+    document.getElementById('hedgeAllPositionsBtn').addEventListener('click', () => {
+        makeApiCall('/hedge/all', {
+            method: 'POST',
+            data: { force: true }
+        }).then(response => {
+            if (!response.error) {
+                showToast('Hedging all positions');
+            }
+        });
+    });
+    document.getElementById('getHedgeStatusBtn').addEventListener('click', () => makeApiCall('/hedge/status'));
+    document.getElementById('getSettingsBtn').addEventListener('click', () => makeApiCall('/settings'));
+    document.getElementById('updateSettingsBtn').addEventListener('click', showModal);
+    document.getElementById('clearResponseBtn').addEventListener('click', () => {
+        responseDisplay.innerHTML = '';
+        showToast('Response cleared');
+    });
 
     // Monitoring Functions
     function startMonitoring() {
@@ -402,99 +529,15 @@ function displayResponse(data) {
         statusElement.className = `text-sm ${isActive ? 'text-green-600' : 'text-gray-600'} text-center mt-2 p-2 rounded ${isActive ? 'bg-green-50' : 'bg-gray-50'}`;
     }
 
-    // Event Listeners
-    document.getElementById('settingsForm').addEventListener('submit', saveSettings);
-    
-    document.querySelector('.close-modal').onclick = hideModal;
-    
+    // Close modals on outside click
     window.onclick = (event) => {
         if (event.target === modal) {
             hideModal();
         }
+        if (event.target === confirmationModal) {
+            hideConfirmationModal();
+        }
     };
-
-    document.getElementById('clearResponseBtn').addEventListener('click', () => {
-        responseDisplay.innerHTML = '';
-        showToast('Response cleared');
-    });
-
-    document.getElementById('listPositionsBtn').addEventListener('click', async () => {
-        await makeApiCall('/positions');
-    });
-
-    document.getElementById('getSoldPositionsBtn').addEventListener('click', async () => {
-        await makeApiCall('/positions/sold');
-    });
-
-    document.getElementById('getPositionBtn').addEventListener('click', async () => {
-        const positionId = document.getElementById('positionId').value;
-        if (!positionId) {
-            showToast('Please enter a Position ID', 'error');
-            return;
-        }
-        await makeApiCall(`/positions/${positionId}`);
-    });
-
-    document.getElementById('startMonitoringBtn').addEventListener('click', async () => {
-        const monitoringSettings = {
-            interval: currentSettings.hedge_interval || DEFAULT_SETTINGS.hedge_interval,
-            delta_threshold: currentSettings.delta_threshold || DEFAULT_SETTINGS.delta_threshold
-        };
-        
-        const response = await makeApiCall('/monitor/start', {
-            method: 'POST',
-            data: monitoringSettings
-        });
-        
-        if (!response.error) {
-            startMonitoring();
-        }
-    });
-
-    document.getElementById('stopMonitoringBtn').addEventListener('click', stopMonitoring);
-
-    document.getElementById('getAnalyticsBtn').addEventListener('click', async () => {
-        const positionId = document.getElementById('positionId').value;
-        if (!positionId) {
-            showToast('Please enter a Position ID', 'error');
-            return;
-        }
-        await makeApiCall(`/analytics/${positionId}`);
-    });
-
-    document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
-        const positionId = document.getElementById('hedgePositionId').value;
-        if (!positionId) {
-            showToast('Please enter a Position ID', 'error');
-            return;
-        }
-        await makeApiCall(`/hedge/${positionId}`, {
-            method: 'POST',
-            data: { force: true }
-        });
-    });
-
-    document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
-        const response = await makeApiCall('/hedge/all', {
-            method: 'POST',
-            data: { force: true }
-        });
-        if (!response.error) {
-            showToast('Hedging all positions');
-        }
-    });
-
-    document.getElementById('getHedgeStatusBtn').addEventListener('click', async () => {
-        await makeApiCall('/hedge/status');
-    });
-
-    document.getElementById('getSettingsBtn').addEventListener('click', async () => {
-        await makeApiCall('/settings');
-    });
-
-    document.getElementById('updateSettingsBtn').addEventListener('click', () => {
-        showModal();
-    });
 
     // Initialization
     loadSettings().then(() => {
@@ -505,6 +548,6 @@ function displayResponse(data) {
     window.addEventListener('beforeunload', () => {
         stopMonitoring();
     });
-</script>
+    </script>
 </body>
-</html>
+</html
