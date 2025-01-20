@@ -119,60 +119,79 @@ class DeltaHedger:
     ) -> Dict:
         """Execute hedging for a position with proper error handling"""
         try:
+            # Get and validate position
             position = self.get_position(position_id)
             if not position:
                 return {"error": "Position not found"}
 
+            if not position.epic or not isinstance(position.epic, str):
+                return {"error": "Invalid epic value"}
+
+            # Get delta information
             delta_info = self.calculate_position_delta(position)
             if "error" in delta_info:
                 return delta_info
 
-            if not position.epic or not isinstance(position.epic, str):
-                return {"error": "Invalid epic value"}
+            # Determine hedge size
+            if hedge_size is not None:
+                target_size = hedge_size
+            else:
+                if not force_hedge and abs(delta_info["delta"]) <= self.delta_threshold:
+                    return {
+                        "status": "skipped",
+                        "message": "Position delta within threshold",
+                        "delta": delta_info,
+                    }
+                target_size = delta_info["suggested_hedge_size"]
 
-            # Determine target size and direction
-            target_size = (
-                hedge_size
-                if hedge_size is not None
-                else delta_info["suggested_hedge_size"]
-            )
-            current_price = delta_info["current_price"]
+            # Validate hedge size
+            if abs(target_size) < self.min_hedge_size:
+                return {
+                    "status": "skipped",
+                    "message": f"Hedge size {abs(target_size)} below minimum {self.min_hedge_size}",
+                    "delta": delta_info,
+                }
+
+            # Get current market price
+            market_data = self.ig_client.get_market_data(position.epic)
+            if not market_data:
+                return {"error": "Failed to get market data"}
+            current_price = market_data["price"]
+
+            # Determine direction
             direction = OrderDirection.BUY if target_size > 0 else OrderDirection.SELL
+            logger.info(
+                f"Attempting to create hedge position: Size={abs(target_size)}, Direction={direction.value}"
+            )
 
-            # First try market order
+            # Create LIMIT order
             result = self.ig_client.create_position(
                 epic=position.epic,
                 direction=direction,
                 size=abs(target_size),
-                order_type=OrderType.MARKET,
+                order_type=OrderType.LIMIT,
+                limit_level=current_price,
             )
 
-            # If market order not supported, try limit order
-            if "error" in result and "not-supported-for-epic" in result.get(
-                "error", ""
-            ):
-                result = self.ig_client.create_position(
-                    epic=position.epic,
-                    direction=direction,
-                    size=abs(target_size),
-                    order_type=OrderType.LIMIT,
-                    price=current_price,  # Use current market price as limit # type: ignore
-                )
-
-            # Handle the result
             if "dealId" in result:
+                # Update position hedge information
                 position.hedge_size = target_size
                 position.hedge_deal_id = result["dealId"]
+                position.last_hedge_price = current_price
+                position.last_hedge_time = datetime.now().isoformat()
 
                 # Record the hedge
                 hedge_record = HedgeRecord(
                     delta=delta_info["delta"],
                     hedge_size=target_size,
-                    price=delta_info["current_price"],
-                    pnl=self.calculate_pnl(position, delta_info["current_price"]),
+                    price=current_price,
+                    pnl=self.calculate_pnl(position, current_price),
                 )
                 position.hedge_history.append(hedge_record)
 
+                logger.info(
+                    f"Successfully created hedge position with deal ID: {result['dealId']}"
+                )
                 return {
                     "status": "hedged",
                     "deal_id": result["dealId"],
@@ -181,7 +200,16 @@ class DeltaHedger:
                     "hedge_record": hedge_record.to_dict(),
                 }
 
-            return {"error": "Hedge execution failed", "result": result}
+            error_msg = result.get("error", "Unknown error")
+            logger.error(f"Failed to create hedge position: {error_msg}")
+
+            # Check for specific error cases
+            if "not-supported-for-epic" in error_msg:
+                return {"error": "Market orders not supported for this instrument"}
+            elif "invalid-order-size" in error_msg:
+                return {"error": f"Invalid order size: {abs(target_size)}"}
+
+            return {"error": f"Hedge execution failed: {error_msg}"}
 
         except Exception as e:
             logger.error(f"Error hedging position: {str(e)}")
