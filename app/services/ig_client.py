@@ -1,4 +1,3 @@
-# app/services/ig_client.py
 import logging
 import os
 import time
@@ -27,6 +26,15 @@ class IGClient:
         self.username = os.getenv("IG_USERNAME")
         self.password = os.getenv("IG_PASSWORD")
         self.acc_type = os.getenv("IG_ACC_TYPE", "DEMO")
+
+        # Account IDs
+        self.options_account = os.getenv("IG_OPTIONS_ACCOUNT")
+        self.cfd_account = os.getenv("IG_CFD_ACCOUNT")
+        self.current_account = self.options_account  # Default to OPTIONS account
+
+        logger.info(
+            f"Initializing IG Client with OPTIONS account: {self.options_account}, CFD account: {self.cfd_account}"
+        )
 
         # Authentication tokens
         self.security_token: Optional[str] = None
@@ -100,6 +108,47 @@ class IGClient:
             return True
         return datetime.now() >= self.token_expiry
 
+    def switch_account(self, account_type: str) -> bool:
+        """Switch between OPTIONS and CFD accounts"""
+        try:
+            account_id = (
+                self.options_account if account_type == "OPTIONS" else self.cfd_account
+            )
+
+            if not account_id:
+                logger.error(f"No account ID found for {account_type}")
+                return False
+
+            logger.info(
+                f"Attempting to switch to {account_type} account (ID: {account_id})"
+            )
+
+            # Log current state
+            logger.debug(f"Current account before switch: {self.current_account}")
+
+            # Switch account using PUT /session
+            response = self.session.put(
+                f"{self.base_url}/session",
+                headers=self.get_headers(),
+                json={"accountId": account_id},
+                timeout=30,
+            )
+
+            if response.status_code == 200:
+                old_account = self.current_account
+                self.current_account = account_id
+                logger.info(
+                    f"Successfully switched from account {old_account} to {account_type} account: {account_id}"
+                )
+                return True
+
+            logger.error(f"Failed to switch account: {response.text}")
+            return False
+
+        except Exception as e:
+            logger.error(f"Error switching account: {str(e)}")
+            return False
+
     def login(self) -> bool:
         """Authenticate with IG API"""
         try:
@@ -124,8 +173,12 @@ class IGClient:
             if response.status_code == 200:
                 self.security_token = response.headers.get("X-SECURITY-TOKEN")
                 self.cst = response.headers.get("CST")
-                # Set token expiry to 6 hours from now
                 self.token_expiry = datetime.now() + timedelta(hours=6)
+
+                # Switch to default OPTIONS account after login
+                if self.options_account:
+                    self.switch_account("OPTIONS")
+
                 logger.info("Successfully logged in to IG API")
                 return True
 
@@ -145,6 +198,8 @@ class IGClient:
             return {"positions": []}
 
         try:
+            logger.info(f"Fetching positions for account: {self.current_account}")
+
             if self._check_token_expiry():
                 if not self.login():
                     return {"error": "Failed to refresh authentication"}
@@ -158,12 +213,19 @@ class IGClient:
             if "error" in positions_data:
                 return positions_data
 
+            # Log position count
+            position_count = len(positions_data.get("positions", []))
+            logger.info(
+                f"Found {position_count} positions for account {self.current_account}"
+            )
+
             # Get detailed information for each position
             for position in positions_data.get("positions", []):
                 deal_id = position.get("position", {}).get("dealId")
                 if not deal_id:
                     continue
 
+                logger.debug(f"Fetching details for position {deal_id}")
                 details_response = self.session.get(
                     f"{self.base_url}/positions/{deal_id}",
                     headers=self.get_headers(),
@@ -176,7 +238,9 @@ class IGClient:
             return positions_data
 
         except requests.exceptions.RequestException as e:
-            error_msg = f"Failed to get positions: {str(e)}"
+            error_msg = (
+                f"Failed to get positions for account {self.current_account}: {str(e)}"
+            )
             logger.error(error_msg)
             return {"error": error_msg}
 
@@ -187,6 +251,7 @@ class IGClient:
 
         try:
             self._rate_limit()
+            logger.debug(f"Fetching market data for {epic}")
 
             if self._check_token_expiry():
                 if not self.login():
@@ -202,7 +267,7 @@ class IGClient:
                 data = response.json()
                 snapshot = data.get("snapshot", {})
 
-                return {
+                market_data = {
                     "bid": float(snapshot.get("bid", 0)),
                     "offer": float(snapshot.get("offer", 0)),
                     "price": (
@@ -216,6 +281,9 @@ class IGClient:
                         0.001, abs(float(snapshot.get("percentageChange", 0.1)) / 100)
                     ),
                 }
+
+                logger.debug(f"Market data received for {epic}: {market_data}")
+                return market_data
 
             logger.warning(f"Failed to get market data: {response.text}")
             return self.mock_data.get_market_data() if self.mock_data else {}
@@ -237,12 +305,17 @@ class IGClient:
     ) -> Dict:
         """Create a new position with proper validation"""
         try:
+            logger.info(
+                f"Creating position on account {self.current_account}: {epic} {direction.value} {size}"
+            )
+
             # Get current market data for price levels
             market_data = self.get_market_data(epic)
             if not market_data:
                 return {"error": "Failed to get market data"}
 
             current_price = market_data.get("price", 0)
+            logger.debug(f"Current market price for {epic}: {current_price}")
 
             # Base position data
             data = {
@@ -259,16 +332,15 @@ class IGClient:
 
             # Add fields based on order type
             if order_type == OrderType.MARKET:
-                # For market orders, don't set any price levels
+                logger.debug("Using MARKET order type")
                 pass
             else:  # LIMIT order
                 price_level = limit_level or current_price
-                # For limit orders, use either limitLevel or limitDistance, not both
+                logger.debug(f"Using LIMIT order type with price level: {price_level}")
                 data.update(
                     {
                         "level": str(price_level),
                         "limitLevel": str(price_level),
-                        # Don't set limitDistance when using limitLevel
                     }
                 )
 
@@ -285,7 +357,7 @@ class IGClient:
             if "error" in result and "market-orders.not-supported" in result.get(
                 "error", ""
             ):
-
+                logger.info("Market orders not supported, switching to LIMIT order")
                 # Switch to LIMIT order
                 data["orderType"] = OrderType.LIMIT.value
                 price_level = current_price
@@ -293,7 +365,6 @@ class IGClient:
                     {
                         "level": str(price_level),
                         "limitLevel": str(price_level),
-                        # Don't include mutually exclusive fields
                     }
                 )
 

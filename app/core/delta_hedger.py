@@ -55,29 +55,6 @@ class DeltaHedger:
             logger.error(f"Error getting position {position_id}: {str(e)}")
             return None
 
-    def get_sold_positions(self) -> Dict:
-        """Get all sold positions"""
-        try:
-            positions_data = self.ig_client.get_positions()
-            if "error" in positions_data:
-                return {"error": positions_data["error"]}
-
-            sold_positions = []
-            for pos_data in positions_data.get("positions", []):
-                try:
-                    position = Position.from_dict(pos_data)
-                    if position and position.direction == "SELL":
-                        sold_positions.append(position.to_dict())
-                except Exception as e:
-                    logger.error(f"Error processing position: {str(e)}")
-                    continue
-
-            return {"positions": sold_positions}
-
-        except Exception as e:
-            logger.error(f"Error getting sold positions: {str(e)}")
-            return {"error": str(e)}
-
     def calculate_position_delta(self, position: Position) -> Dict:
         """Calculate delta and hedging requirements"""
         try:
@@ -393,7 +370,6 @@ class DeltaHedger:
             logger.error(f"Failed to start monitoring: {str(e)}")
             return {"error": str(e)}
 
-    # Add to DeltaHedger class
     def get_sold_positions(self) -> Dict:
         """Get all sold positions"""
         try:
