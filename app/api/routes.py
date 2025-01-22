@@ -80,7 +80,6 @@ def start_monitoring() -> ApiResponse:
 
 @app.route("/api/positions", methods=["GET"])
 def list_positions() -> ApiResponse:
-    """Get all positions with delta calculations"""
     try:
         positions_response = ig_client.get_positions()
         if "error" in positions_response:
@@ -89,16 +88,22 @@ def list_positions() -> ApiResponse:
                 HTTPStatus.BAD_REQUEST,
             )
 
-        print(positions_response)
         positions = positions_response.get("positions", [])
         if not positions:
             return (
-                jsonify({"positions": [], "message": "No positions found"}),
+                jsonify(
+                    {
+                        "positions": [],
+                        "message": "No positions found",
+                        "monitoring_status": hedger.get_monitoring_status(),
+                    }
+                ),
                 HTTPStatus.OK,
             )
 
         positions_data = []
         total_delta = 0.0
+        total_pnl = 0.0
         total_exposure = 0.0
 
         for position_data in positions:
@@ -114,39 +119,26 @@ def list_positions() -> ApiResponse:
                         "needs_hedge": delta_info.get("needs_hedge", False),
                         "suggested_hedge": delta_info.get("suggested_hedge_size", 0),
                         "metrics": position_metrics,
+                        "greeks": delta_info.get("greeks", {}),
                     }
                 )
 
                 positions_data.append(position_dict)
                 total_delta += delta_info.get("delta", 0)
+                total_pnl += position_metrics.get("pnl", 0)
                 total_exposure += position_metrics.get("exposure", 0)
             except Exception as e:
                 logger.error(f"Error processing position: {str(e)}")
                 continue
 
-        positions_by_instrument = {}
-        for pos in positions_data:
-            instrument = pos.get("epic", "unknown")
-            if instrument not in positions_by_instrument:
-                positions_by_instrument[instrument] = {
-                    "positions": [],
-                    "total_delta": 0.0,
-                    "total_exposure": 0.0,
-                }
-            positions_by_instrument[instrument]["positions"].append(pos)
-            positions_by_instrument[instrument]["total_delta"] += pos.get("delta", 0)
-            positions_by_instrument[instrument]["total_exposure"] += pos.get(
-                "metrics", {}
-            ).get("exposure", 0)
-
         return jsonify(
             {
                 "positions": positions_data,
-                "by_instrument": positions_by_instrument,
                 "portfolio_summary": {
                     "total_positions": len(positions),
-                    "total_delta": total_delta,
-                    "total_exposure": total_exposure,
+                    "total_delta": round(total_delta, 4),
+                    "total_pnl": round(total_pnl, 2),
+                    "total_exposure": round(total_exposure, 2),
                     "monitoring_status": hedger.get_monitoring_status(),
                 },
             }
@@ -159,69 +151,40 @@ def list_positions() -> ApiResponse:
 
 @app.route("/api/positions/<position_id>", methods=["GET"])
 def get_position(position_id: str) -> ApiResponse:
-    """Get detailed position information"""
     try:
         position = hedger.get_position(position_id)
         if not position:
             return jsonify({"error": "Position not found"}), HTTPStatus.NOT_FOUND
 
-        try:
-            if not position.epic or not isinstance(position.epic, str):
-                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+        if not position.epic or not isinstance(position.epic, str):
+            return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
 
-            if not isinstance(position.epic, str):
-                return (
-                    jsonify({"error": "Invalid or missing epic value"}),
-                    HTTPStatus.BAD_REQUEST,
-                )
+        market_data = ig_client.get_market_data(position.epic)
+        if not market_data:
+            return (
+                jsonify({"error": "Failed to fetch market data"}),
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
 
-            if not position.epic or not isinstance(position.epic, str):
-                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
+        delta_info = hedger.calculate_position_delta(position)
+        metrics = hedger.calculate_position_metrics(position)
+        greeks = hedger.calculator.calculate_greeks(
+            S=market_data["price"],
+            K=position.strike,
+            T=position.time_to_expiry,
+            sigma=market_data.get("volatility", 0.2),
+            option_type=position.option_type,
+        )
 
-            if not position.epic or not isinstance(position.epic, str):
-                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
-
-            if not position.epic or not isinstance(position.epic, str):
-                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
-
-            if not position.epic or not isinstance(position.epic, str):
-                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
-
-            if not position.epic or not isinstance(position.epic, str):
-                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
-
-            if not position.epic or not isinstance(position.epic, str):
-                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
-
-            if not position.epic or not isinstance(position.epic, str):
-                return jsonify({"error": "Invalid epic value"}), HTTPStatus.BAD_REQUEST
-
-            market_data = ig_client.get_market_data(position.epic)
-            if not market_data:
-                return (
-                    jsonify({"error": "Failed to fetch market data"}),
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                )
-
-            delta_info = hedger.calculate_position_delta(position)
-            metrics = hedger.calculate_position_metrics(position)
-
-            response = {
+        return jsonify(
+            {
                 "position": position.to_dict(),
                 "market_data": market_data,
-                "analysis": {"delta": delta_info, "metrics": metrics},
+                "analysis": {"delta": delta_info, "metrics": metrics, "greeks": greeks},
                 "hedge_history": [h.to_dict() for h in position.hedge_history],
                 "status": hedger.get_position_status(position_id),
             }
-
-            return jsonify(response)
-
-        except Exception as e:
-            logger.error(f"Error calculating position metrics: {str(e)}")
-            return (
-                jsonify({"error": "Error calculating position metrics"}),
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
+        )
 
     except Exception as e:
         logger.error(f"Error getting position {position_id}: {str(e)}")
@@ -230,33 +193,31 @@ def get_position(position_id: str) -> ApiResponse:
 
 @app.route("/api/hedge/<position_id>", methods=["POST"])
 def hedge_position(position_id: str) -> ApiResponse:
-    """Manually trigger hedging for a position"""
     try:
         data = validate_json_request()
         if not data:
             return jsonify({"error": "Invalid request data"}), HTTPStatus.BAD_REQUEST
 
         force_hedge = bool(data.get("force", False))
-        hedge_size = None
-        if "hedge_size" in data:
-            try:
-                hedge_size = float(data["hedge_size"])
-            except (ValueError, TypeError):
-                return jsonify({"error": "Invalid hedge size"}), HTTPStatus.BAD_REQUEST
+        hedge_size = float(data["hedge_size"]) if "hedge_size" in data else None
 
-        hedge_params = {"position_id": position_id, "force_hedge": force_hedge}
-        if hedge_size is not None:
-            hedge_params["hedge_size"] = hedge_size
-
-        result = hedger.hedge_position(**hedge_params)
+        result = hedger.hedge_position(
+            position_id=position_id, hedge_size=hedge_size, force_hedge=force_hedge
+        )
 
         if "error" in result:
             return jsonify(result), HTTPStatus.BAD_REQUEST
 
         position = hedger.get_position(position_id)
         if position:
-            result["updated_position"] = position.to_dict()
-            result["updated_metrics"] = hedger.calculate_position_metrics(position)
+            market_data = ig_client.get_market_data(position.epic)
+            result.update(
+                {
+                    "position": position.to_dict(),
+                    "market_data": market_data,
+                    "metrics": hedger.calculate_position_metrics(position),
+                }
+            )
 
         return jsonify(result)
 

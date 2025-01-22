@@ -26,10 +26,9 @@ class IGClient:
         self.username = os.getenv("IG_USERNAME")
         self.password = os.getenv("IG_PASSWORD")
         self.acc_type = os.getenv("IG_ACC_TYPE", "DEMO")
-
-        # Account ID
-        self.account_id = os.getenv("IG_OPTIONS_ACCOUNT")
-        self.account_id = os.getenv("IG_CFD_ACCOUNT")
+        self.options_account = os.getenv("IG_OPTIONS_ACCOUNT")
+        self.cfd_account = os.getenv("IG_CFD_ACCOUNT")
+        self.account_id = self.options_account
         logger.info(f"Initializing IG Client with account ID: {self.account_id}")
 
         # Authentication tokens
@@ -43,7 +42,8 @@ class IGClient:
         self.max_retries = 3
         self.retry_delay = 2
         self.request_interval = float(_hedge_settings.get("api_request_interval", 1.0))
-        print(f"self user account type: {self.account_id}")
+        print(f"Options Account: {os.getenv('IG_OPTIONS_ACCOUNT')}")
+        print(f"CFD Account: {os.getenv('IG_CFD_ACCOUNT')}")
         self.login()
 
     def _validate_credentials(self) -> None:
@@ -104,12 +104,6 @@ class IGClient:
         return datetime.now() >= self.token_expiry
 
     def login(self, account_type: str = "options") -> bool:
-        """
-        Authenticate with IG API
-
-        Args:
-            account_type (str): 'options' or 'cfd' to determine which account to use
-        """
         try:
             # Determine the appropriate account ID
             if account_type == "options":
@@ -118,6 +112,9 @@ class IGClient:
                 self.account_id = os.getenv("IG_CFD_ACCOUNT")
             else:
                 raise ValueError(f"Invalid account type: {account_type}")
+
+            logger.debug(f"Attempting login with account type: {account_type}")
+            logger.debug(f"Using account ID: {self.account_id}")
 
             self._validate_credentials()
 
@@ -137,14 +134,16 @@ class IGClient:
                 f"{self.base_url}/session", headers=headers, json=data, timeout=30
             )
 
+            logger.debug(f"Login response status: {response.status_code}")
+            logger.debug(f"Login response headers: {dict(response.headers)}")
+            logger.debug(f"Login response body: {response.text}")
+
             if response.status_code == 200:
                 self.security_token = response.headers.get("X-SECURITY-TOKEN")
                 self.cst = response.headers.get("CST")
                 self.token_expiry = datetime.now() + timedelta(hours=6)
 
-                logger.info(
-                    f"Successfully logged in to IG API with the user account {self.username} and account number {self.account_id}"
-                )
+                logger.info(f"Successfully logged in with account {self.account_id}")
 
                 # Get available accounts
                 accounts_response = self.session.get(
@@ -154,8 +153,8 @@ class IGClient:
                 if accounts_response.status_code == 200:
                     accounts = accounts_response.json().get("accounts", [])
                     logger.debug(f"Available accounts: {accounts}")
+                    logger.debug(f"Trying to match account ID: {self.account_id}")
 
-                    # Find matching account
                     matching_account = next(
                         (
                             acc
@@ -166,7 +165,7 @@ class IGClient:
                     )
 
                     if matching_account:
-                        # Set the account
+                        logger.debug(f"Found matching account: {matching_account}")
                         switch_response = self.session.put(
                             f"{self.base_url}/session",
                             headers=self.get_headers(),
@@ -174,17 +173,22 @@ class IGClient:
                             timeout=30,
                         )
 
+                        logger.debug(
+                            f"Switch response status: {switch_response.status_code}"
+                        )
+                        logger.debug(f"Switch response body: {switch_response.text}")
+
                         if switch_response.status_code in [200, 204]:
                             logger.info(
                                 f"Successfully set account to {self.account_id}"
                             )
                         else:
                             logger.warning(
-                                f"Could not set account. Will continue with default. Status: {switch_response.status_code}"
+                                f"Could not set account. Status: {switch_response.status_code}"
                             )
                     else:
                         logger.warning(
-                            f"Account {self.account_id} not found in available accounts. Will continue with default account."
+                            f"Account {self.account_id} not found in available accounts: {accounts}"
                         )
 
                 return True
@@ -200,44 +204,37 @@ class IGClient:
             return False
 
     def _process_position_data(self, position_data: Dict) -> Dict:
-        """Process and validate position data before creating Position object"""
         try:
-            # Extract market data
             market_data = position_data.get("market", {})
+            position = position_data.get("position", {})
 
-            # Log raw data for debugging
-            logger.debug(f"Raw position data: {position_data}")
+            # Enhanced option type detection
+            instrument_name = market_data.get("instrumentName", "").upper()
+            if "PUT" in instrument_name:
+                option_type = "PUT"
+            elif "CALL" in instrument_name:
+                option_type = "CALL"
+            else:
+                option_type = "CALL"
 
-            # Check if this is a currency position
-            instrument_type = market_data.get("instrumentType", "").upper()
-            if instrument_type in ["CURRENCIES", "FOREX"]:
-                # For currency positions, set a default CALL type
-                market_data["instrumentType"] = "CALL"
-                position_data["market"] = market_data
-                logger.info(f"Processing currency position: {market_data.get('epic')}")
-                return position_data
-
-            # For other instruments, determine option type
-            instrument_name = market_data.get("instrumentName", "")
-            logger.debug(f"Processing position with instrument name: {instrument_name}")
-
-            # Default to CALL if can't determine
-            option_type = "CALL"
-            if instrument_name:
-                if "PUT" in instrument_name.upper():
-                    option_type = "PUT"
-                elif "CALL" in instrument_name.upper():
-                    option_type = "CALL"
-
-            # Update the market data
             market_data["instrumentType"] = option_type
-            position_data["market"] = market_data
+            market_data["strikePrice"] = float(market_data.get("strikePrice", 0))
+            market_data["contractSize"] = float(position.get("contractSize", 1.0))
 
-            return position_data
+            # Add calculated fields
+            position["totalSize"] = float(position.get("size", 0)) * float(
+                position.get("contractSize", 1.0)
+            )
+            position["currentValue"] = position["totalSize"] * float(
+                market_data.get(
+                    "offer" if position.get("direction") == "BUY" else "bid", 0
+                )
+            )
+
+            return {"position": position, "market": market_data}
 
         except Exception as e:
-            logger.error(f"Error processing position data: {str(e)}")
-            logger.debug(f"Problematic position data: {position_data}")
+            logger.error(f"Position data processing error: {str(e)}")
             return position_data
 
     def get_positions(self) -> Dict:
@@ -287,12 +284,8 @@ class IGClient:
             return {"error": error_msg}
 
     def get_market_data(self, epic: str) -> Dict:
-        """Get market data for an instrument"""
-
         try:
             self._rate_limit()
-            logger.debug(f"Fetching market data for {epic}")
-
             if self._check_token_expiry():
                 if not self.login():
                     return {"error": "Failed to refresh authentication"}
@@ -306,6 +299,7 @@ class IGClient:
             if response.status_code == 200:
                 data = response.json()
                 snapshot = data.get("snapshot", {})
+                instrument = data.get("instrument", {})
 
                 market_data = {
                     "bid": float(snapshot.get("bid", 0)),
@@ -320,17 +314,20 @@ class IGClient:
                     "volatility": max(
                         0.001, abs(float(snapshot.get("percentageChange", 0.1)) / 100)
                     ),
+                    "instrument_type": instrument.get("type", ""),
+                    "market_status": snapshot.get("marketStatus", ""),
+                    "strike_price": float(instrument.get("strikePrice", 0)),
+                    "expiry": instrument.get("expiry", ""),
                 }
 
-                logger.debug(f"Market data received for {epic}: {market_data}")
                 return market_data
 
             error_msg = self._parse_error_response(response)
             logger.error(f"Failed to get market data for {epic}: {error_msg}")
             return {"error": error_msg}
 
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Failed to get market data for {epic}: {str(e)}"
+        except Exception as e:
+            error_msg = f"Market data error for {epic}: {str(e)}"
             logger.error(error_msg)
             return {"error": error_msg}
 

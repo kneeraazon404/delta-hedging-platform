@@ -1,5 +1,3 @@
-# app/models/position.py
-
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Union
@@ -16,99 +14,98 @@ class Position:
         if isinstance(data, str):
             raise ValueError("Position data must be a dictionary")
 
+        pos = data.get("position", {})
+        market = data.get("market", {})
+
         # Handle position ID/reference
-        self.deal_id = data.get("dealId") or data.get("deal_id")
+        self.deal_id = pos.get("dealId") or data.get("deal_id")
         if not self.deal_id:
             raise ValueError("Deal ID is required")
 
         # Basic position information
-        self.epic = data.get("epic") or data.get("market", {}).get("epic")
+        self.epic = market.get("epic") or data.get("epic")
         if not self.epic:
             raise ValueError("Epic is required")
 
         self.underlying_epic = "IX.D.SPTRD.IFS.IP"
 
         # Position details
-        self.strike = float(data.get("strike", data.get("level", 0)))
-
-        # Handle option type
-        option_type_raw = str(
-            data.get(
-                "option_type", data.get("market", {}).get("instrumentType", "CALL")
-            )
-        ).upper()
-        try:
-            if "PUT" in option_type_raw:
-                self.option_type = OptionType.PUT
-            else:
-                self.option_type = OptionType.CALL
-        except ValueError:
-            logger.warning(
-                f"Invalid option type '{option_type_raw}', defaulting to CALL"
-            )
-            self.option_type = OptionType.CALL
-
-        # Direction and size
-        self.direction = data.get("direction", "SELL")
-        self.contract_size = float(
-            data.get("contract_size", data.get("contractSize", 1.0))
-        )
-        self.size = float(data.get("size", 0))
-
-        # Price and value information
-        self.level = float(data.get("level", 0))
-        self.premium = float(
-            data.get("premium", self.level * self.size * self.contract_size)
-        )
+        self.strike = float(data.get("strike", pos.get("level", 0)))
+        self.size = float(pos.get("size", 0))
+        self.direction = pos.get("direction", "SELL")
+        self.contract_size = float(pos.get("contractSize", 1.0))
+        self.level = float(pos.get("level", 0))
+        self.currency = pos.get("currency", "GBP")
 
         # Market information
-        self.market_name = data.get("marketName", "")
-        self.instrument_type = data.get("instrumentType", "")
-        self.currency = data.get("currency", "GBP")
-        self.last_market_data: Optional[Dict] = None
-        self.last_update: Optional[datetime] = None
+        self.instrument_name = market.get("instrumentName", "")
+        self.bid = market.get("bid", 0)
+        self.offer = market.get("offer", 0)
+        self.high = market.get("high", 0)
+        self.low = market.get("low", 0)
+
+        # Option type determination
+        option_type_raw = str(market.get("instrumentType", "CALL")).upper()
+        if "PUT" in option_type_raw:
+            self.option_type = OptionType.PUT
+        else:
+            self.option_type = OptionType.CALL
 
         # Time information
-        self.expiry = data.get("expiry")
-        self._validate_expiry()
+        self.expiry = market.get("expiry")
         self.time_to_expiry = self._calculate_time_to_expiry()
         self.created_at = datetime.now().isoformat()
+        self.last_update: Optional[datetime] = None
+
+        # Calculate position values
+        self.total_size = self.size * self.contract_size
+        self.current_value = self.total_size * (
+            self.bid if self.direction == "SELL" else self.offer
+        )
+        self.entry_value = self.total_size * self.level
+        self.premium = self.entry_value
+
+        # Calculate P&L
+        if self.direction == "BUY":
+            self.unrealized_pnl = (
+                (self.bid - self.level) * self.total_size if self.bid > 0 else 0
+            )
+        else:
+            self.unrealized_pnl = (
+                (self.level - self.offer) * self.total_size if self.offer > 0 else 0
+            )
 
         # Hedging state
         self.hedge_size = float(data.get("hedge_size", 0.0))
         self.hedge_deal_id: Optional[str] = data.get("hedge_deal_id")
-        self.hedge_direction: Optional[str] = None
+        self.hedge_direction: Optional[str] = data.get("hedge_direction")
         self.last_hedge_price: Optional[float] = data.get("last_hedge_price")
         self.last_hedge_time: Optional[str] = data.get("last_hedge_time")
         self.hedge_history: List[HedgeRecord] = []
         self.pnl_threshold_crossed = bool(data.get("pnl_threshold_crossed", False))
-
-        # Position state
         self.is_active = bool(data.get("is_active", True))
 
     def _validate_expiry(self) -> None:
         """Validate expiry format and value"""
-        if self.expiry:
+        if self.expiry and isinstance(self.expiry, str):
             try:
-                if isinstance(self.expiry, str):
-                    datetime.strptime(self.expiry, "%d-%b-%y")
+                datetime.strptime(self.expiry, "%d-%b-%y")
             except ValueError:
-                logger.warning(f"Invalid expiry format: {self.expiry}, setting to None")
+                logger.warning(f"Invalid expiry format: {self.expiry}")
                 self.expiry = None
 
     def _calculate_time_to_expiry(self) -> float:
         """Calculate time to expiry in years"""
         if not self.expiry:
-            return 0.25  # Default to 3 months
+            return 0.25
 
         try:
             if isinstance(self.expiry, str):
                 expiry_date = datetime.strptime(self.expiry, "%d-%b-%y")
                 days_to_expiry = (expiry_date - datetime.now()).days
-                # Ensure minimum value to avoid division by zero in calculations
                 return max(days_to_expiry / 365.0, 0.001)
         except ValueError:
-            logger.warning("Error calculating time to expiry, using default")
+            logger.warning("Error calculating time to expiry")
             return 0.25
 
         return 0.25
@@ -123,21 +120,7 @@ class Position:
             if not position_data or not market_data:
                 raise ValueError("Invalid position data structure")
 
-            processed_data = {
-                "dealId": position_data.get("dealId"),
-                "epic": market_data.get("epic"),
-                "strike": float(
-                    market_data.get("strike", 0) or position_data.get("level", 0)
-                ),
-                "direction": position_data.get("direction", "SELL"),
-                "contract_size": float(position_data.get("contractSize", 1.0)),
-                "size": float(position_data.get("size", 0)),
-                "level": float(position_data.get("level", 0)),
-                "expiry": market_data.get("expiry"),
-                "marketName": market_data.get("instrumentName", ""),
-                "instrumentType": market_data.get("instrumentType", ""),
-                "currency": position_data.get("currency", "GBP"),
-            }
+            processed_data = {"position": position_data, "market": market_data}
 
             return cls(processed_data)
 
@@ -150,8 +133,24 @@ class Position:
         if not isinstance(market_data, dict):
             raise ValueError("Market data must be a dictionary")
 
-        self.last_market_data = market_data
+        self.bid = market_data.get("bid", self.bid)
+        self.offer = market_data.get("offer", self.offer)
+        self.high = market_data.get("high", self.high)
+        self.low = market_data.get("low", self.low)
         self.last_update = datetime.now()
+
+        # Recalculate values
+        self.current_value = self.total_size * (
+            self.bid if self.direction == "SELL" else self.offer
+        )
+        if self.direction == "BUY":
+            self.unrealized_pnl = (
+                (self.bid - self.level) * self.total_size if self.bid > 0 else 0
+            )
+        else:
+            self.unrealized_pnl = (
+                (self.level - self.offer) * self.total_size if self.offer > 0 else 0
+            )
 
     def calculate_intrinsic_value(self, current_price: float) -> float:
         """Calculate intrinsic value of the option"""
@@ -174,13 +173,7 @@ class Position:
             self.last_hedge_time = datetime.now().isoformat()
             self.pnl_threshold_crossed = True
 
-            # Add hedge record
-            hedge_record = HedgeRecord(
-                delta=0.0,  # This will be updated with actual delta
-                hedge_size=size,
-                price=price,
-                pnl=0.0,  # This will be updated with actual PnL
-            )
+            hedge_record = HedgeRecord(delta=0.0, hedge_size=size, price=price, pnl=0.0)
             self.hedge_history.append(hedge_record)
 
         except (ValueError, TypeError) as e:
@@ -204,16 +197,15 @@ class Position:
         except (ValueError, TypeError) as e:
             raise ValueError(f"Invalid hedge record data: {str(e)}")
 
-    def needs_hedge(self, current_pnl: float) -> bool:
+    def needs_hedge(self, current_pnl: float, threshold: float) -> bool:
         """Check if position needs hedging based on PnL threshold"""
         try:
             if not self.is_active or self.direction != "SELL":
                 return False
 
-            hedge_threshold = -abs(self.premium)
             return (
-                current_pnl <= hedge_threshold and not self.pnl_threshold_crossed
-            ) or (current_pnl > hedge_threshold and self.pnl_threshold_crossed)
+                current_pnl <= -abs(threshold) and not self.pnl_threshold_crossed
+            ) or (current_pnl > -abs(threshold) and self.pnl_threshold_crossed)
         except (ValueError, TypeError):
             raise ValueError("Invalid PnL value for hedge check")
 
@@ -229,14 +221,19 @@ class Position:
                 "direction": self.direction,
                 "contract_size": self.contract_size,
                 "size": self.size,
-                "premium": self.premium,
+                "premium": round(self.premium, 2),
                 "level": self.level,
-                "market_name": self.market_name,
-                "instrument_type": self.instrument_type,
+                "bid": self.bid,
+                "offer": self.offer,
+                "instrument_name": self.instrument_name,
                 "currency": self.currency,
                 "time_to_expiry": self.time_to_expiry,
                 "expiry": self.expiry,
                 "created_at": self.created_at,
+                "total_size": self.total_size,
+                "current_value": round(self.current_value, 2),
+                "entry_value": round(self.entry_value, 2),
+                "unrealized_pnl": round(self.unrealized_pnl, 2),
                 "hedge_size": self.hedge_size,
                 "hedge_deal_id": self.hedge_deal_id,
                 "hedge_direction": self.hedge_direction,

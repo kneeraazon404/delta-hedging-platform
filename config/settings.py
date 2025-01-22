@@ -9,4 +9,5 @@ HEDGE_SETTINGS = {
     "username": "Z5TMY0",
     "delta_threshold": 0.05,
     "api_request_interval": 0.1,  # seconds
+    "pnl_threshold": 0.01,
 }

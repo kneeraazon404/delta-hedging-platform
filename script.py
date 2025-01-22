@@ -68,7 +68,6 @@ class Position:
 
 
 def analyze_portfolio(positions: List[Position]) -> Dict:
-    """Analyze the entire portfolio"""
     portfolio = {
         "total_positions": len(positions),
         "positions_by_direction": {
@@ -82,7 +81,6 @@ def analyze_portfolio(positions: List[Position]) -> Dict:
     }
 
     for position in positions:
-        # Aggregate by currency
         if position.currency not in portfolio["positions_by_currency"]:
             portfolio["positions_by_currency"][position.currency] = {
                 "count": 0,
@@ -97,10 +95,8 @@ def analyze_portfolio(positions: List[Position]) -> Dict:
             "total_pnl"
         ] += position.unrealized_pnl
 
-        # Aggregate by market
-        market_name = position.instrument_name.split()[
-            1:3
-        ]  # Get the market name (e.g., "Wall Street", "US Tech")
+        # e.g. "Daily US 500 6078.0 CALL" => ["US","500"] => "US 500"
+        market_name = position.instrument_name.split()[1:3]
         market_key = " ".join(market_name)
         if market_key not in portfolio["positions_by_market"]:
             portfolio["positions_by_market"][market_key] = {
@@ -116,18 +112,16 @@ def analyze_portfolio(positions: List[Position]) -> Dict:
             "total_pnl"
         ] += position.unrealized_pnl
 
-        # Add to totals
         portfolio["total_value"] += position.current_value
         portfolio["total_pnl"] += position.unrealized_pnl
 
     return portfolio
 
 
-def get_positions(
-    username: str, password: str, api_key: str, account_number: str, url: str
-) -> Optional[List[Position]]:
+def login_ig(username: str, password: str, api_key: str, url: str) -> Optional[Dict]:
     """
-    Get positions from IG Trading API with proper error handling and type hints.
+    Logs in via POST /session (Version=2).
+    Returns a dict containing { 'security_token': ..., 'cst': ..., 'current_account_id': ... } on success.
     """
     auth_headers = {
         "X-IG-API-KEY": api_key,
@@ -135,79 +129,298 @@ def get_positions(
         "Content-Type": "application/json; charset=UTF-8",
         "Accept": "application/json; charset=UTF-8",
     }
-
-    auth_data = {
-        "identifier": username,
-        "password": password,
-    }
+    auth_data = {"identifier": username, "password": password}
 
     try:
-        # Step 1: Authentication
-        auth_response = requests.post(
+        resp = requests.post(
             f"{url}/session", headers=auth_headers, json=auth_data, timeout=30
         )
-        auth_response.raise_for_status()
-
-        # Get security tokens
-        security_token = auth_response.headers.get("X-SECURITY-TOKEN")
-        cst = auth_response.headers.get("CST")
+        resp.raise_for_status()
+        security_token = resp.headers.get("X-SECURITY-TOKEN")
+        cst = resp.headers.get("CST")
 
         if not security_token or not cst:
-            print("Error: Security tokens not received")
+            print("Error: Security tokens not received from login.")
             return None
 
-        # Step 2: Get positions
-        position_headers = {
-            **auth_headers,
-            "X-SECURITY-TOKEN": security_token,
-            "CST": cst,
+        # The response body from login (Version=2) typically includes 'currentAccountId', 'accounts', etc.
+        body = resp.json()
+        current_account_id = body.get(
+            "currentAccountId"
+        )  # IG tells you which account is "current" after login
+
+        return {
+            "security_token": security_token,
+            "cst": cst,
+            "current_account_id": current_account_id,
         }
+    except requests.RequestException as e:
+        print(f"Login failed: {e}")
+        return None
 
-        position_response = requests.get(
-            f"{url}/positions", headers=position_headers, timeout=30
+
+def switch_account_if_needed(
+    security_token: str,
+    cst: str,
+    api_key: str,
+    url: str,
+    target_account: str,
+    current_account: str,
+) -> Optional[Dict]:
+    """
+    Switches to 'target_account' if it's different from 'current_account'.
+    Returns updated tokens in a dict if the switch is done or does nothing if already on the same account.
+    """
+    if current_account == target_account:
+        print(f"Already on account {current_account}, skipping account switch.")
+        return {"security_token": security_token, "cst": cst}
+
+    print(f"Switching from account '{current_account}' to '{target_account}'")
+
+    switch_headers = {
+        "X-IG-API-KEY": api_key,
+        "X-SECURITY-TOKEN": security_token,
+        "CST": cst,
+        "Version": "1",
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "application/json; charset=UTF-8",
+    }
+    switch_payload = {"accountId": target_account}
+
+    try:
+        resp = requests.put(
+            f"{url}/session", headers=switch_headers, json=switch_payload, timeout=30
         )
-        position_response.raise_for_status()
 
-        positions_data = position_response.json()
+        # If it's not 200 or 204, print debug
+        if resp.status_code not in (200, 204):
+            print(f"Account switch status code: {resp.status_code}")
+            print(f"Account switch response text: {resp.text}")
 
-        # Step 3: Get detailed position information and create Position objects
+        resp.raise_for_status()
+        new_sec = resp.headers.get("X-SECURITY-TOKEN") or security_token
+        new_cst = resp.headers.get("CST") or cst
+        return {"security_token": new_sec, "cst": new_cst}
+    except requests.RequestException as e:
+        print(f"Failed to switch accounts: {e}")
+        return None
+
+
+def get_positions(
+    security_token: str, cst: str, api_key: str, account_number: str, url: str
+) -> Optional[List[Position]]:
+    """
+    Retrieves positions for the given account_number, using existing tokens.
+    """
+    headers = {
+        "X-IG-API-KEY": api_key,
+        "X-SECURITY-TOKEN": security_token,
+        "CST": cst,
+        "Version": "2",
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "application/json; charset=UTF-8",
+        "X-IG-ACCOUNT-ID": account_number,
+    }
+    try:
+        resp = requests.get(f"{url}/positions", headers=headers, timeout=30)
+        resp.raise_for_status()
+
+        data = resp.json()
+        positions_list = data.get("positions", [])
+
         positions = []
-        for position in positions_data.get("positions", []):
-            deal_id = position["position"]["dealId"]
-            position_details = requests.get(
-                f"{url}/positions/{deal_id}", headers=position_headers, timeout=30
+        for item in positions_list:
+            # Optionally fetch details for each position
+            deal_id = item["position"]["dealId"]
+            detail_resp = requests.get(
+                f"{url}/positions/{deal_id}", headers=headers, timeout=30
             )
-            if position_details.status_code == 200:
-                position["details"] = position_details.json()
-            positions.append(Position(position))
+            if detail_resp.status_code == 200:
+                item["details"] = detail_resp.json()
+            positions.append(Position(item))
 
         return positions
+    except requests.RequestException as e:
+        print(f"Error retrieving positions: {e}")
+        return None
 
-    except requests.exceptions.RequestException as e:
-        print(f"Error: API request failed: {str(e)}")
+
+def create_position(
+    security_token: str,
+    cst: str,
+    api_key: str,
+    account_number: str,
+    url: str,
+    epic: str,
+    direction: str,
+    size: float,
+    expiry: str = "-",
+    currency: str = "GBP",
+    guaranteed_stop: bool = False,
+    trailing_stop: bool = False,
+) -> Optional[Dict]:
+    """
+    Places a market order on the specified account and confirms it via GET /confirms/{dealReference}.
+    """
+    headers = {
+        "X-IG-API-KEY": api_key,
+        "X-SECURITY-TOKEN": security_token,
+        "CST": cst,
+        "Version": "2",
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "application/json; charset=UTF-8",
+        "X-IG-ACCOUNT-ID": account_number,
+    }
+
+    position_data = {
+        "epic": epic,
+        "expiry": expiry,
+        "direction": direction,
+        "size": str(size),
+        "orderType": "MARKET",
+        "currencyCode": currency,
+        "forceOpen": True,
+        "guaranteedStop": guaranteed_stop,
+        "trailingStop": trailing_stop,
+    }
+    print("Creating position:", position_data)
+
+    try:
+        resp = requests.post(
+            f"{url}/positions/otc", headers=headers, json=position_data, timeout=30
+        )
+        resp.raise_for_status()
+
+        result = resp.json()
+        print("Full response from IG (create_position):", json.dumps(result, indent=2))
+
+        deal_ref = result.get("dealReference")
+        if not deal_ref:
+            print("No 'dealReference' returned - trade may be rejected.")
+            print("Response keys:", list(result.keys()))
+            return result
+
+        # Confirmation typically needs Version=1
+        confirm_headers = headers.copy()
+        confirm_headers["Version"] = "1"
+
+        conf = requests.get(
+            f"{url}/confirms/{deal_ref}", headers=confirm_headers, timeout=30
+        )
+        print("Confirmation status code:", conf.status_code)
+        print("Confirmation raw text:", conf.text)
+        try:
+            conf_json = conf.json()
+            print("Parsed Confirmation JSON:", json.dumps(conf_json, indent=2))
+            return conf_json
+        except ValueError:
+            print("Could not parse confirmation as JSON.")
+            return {"error": "Non-JSON response from confirms"}
+    except requests.RequestException as e:
+        print(f"Error creating position: {e}")
         return None
 
 
 if __name__ == "__main__":
-    # Get positions
-    positions = get_positions(
-        username=os.getenv("IG_USERNAME"),  # type: ignore
-        password=os.getenv("IG_PASSWORD"),  # type: ignore
-        api_key=os.getenv("IG_API_KEY"),  # type: ignore
-        account_number=os.getenv("IG_OPTIONS_NUMBER"),  # type: ignore
-        url="https://demo-api.ig.com/gateway/deal",
+    IG_USERNAME = os.getenv("IG_USERNAME")  # e.g. "mydemoaccount"
+    IG_PASSWORD = os.getenv("IG_PASSWORD")  # e.g. "mypassword"
+    IG_API_KEY = os.getenv("IG_API_KEY")  # e.g. "myapikey"
+    IG_OPTIONS_ACCOUNT = os.getenv("IG_OPTIONS_ACCOUNT")  # e.g. "ABC123"
+    IG_CFD_ACCOUNT = os.getenv("IG_CFD_ACCOUNT")  # e.g. "XYZ789"
+
+    IG_BASE_URL = "https://demo-api.ig.com/gateway/deal"  # Live: "https://api.ig.com/gateway/deal"
+
+    # 1) Validate environment variables
+    for var_name in [
+        "IG_USERNAME",
+        "IG_PASSWORD",
+        "IG_API_KEY",
+        "IG_OPTIONS_ACCOUNT",
+        "IG_CFD_ACCOUNT",
+    ]:
+        if not globals()[var_name]:
+            raise ValueError(f"Missing environment variable: {var_name}")
+
+    # 2) Log in once
+    print("Logging in to IG...")
+    login_data = login_ig(IG_USERNAME, IG_PASSWORD, IG_API_KEY, IG_BASE_URL)  # type: ignore
+    if not login_data:
+        raise SystemExit("Cannot proceed without a successful login.")
+
+    security_token = login_data["security_token"]
+    cst = login_data["cst"]
+    current_acct = login_data["current_account_id"]
+    print(f"Logged in. Current account from IG's response is: {current_acct}")
+
+    # 3) Retrieve positions from the "options" account
+    print(f"\nRetrieving positions for account: {IG_OPTIONS_ACCOUNT}")
+    # Switch if needed
+    switched_tokens = switch_account_if_needed(
+        security_token, cst, IG_API_KEY, IG_BASE_URL, IG_OPTIONS_ACCOUNT, current_acct  # type: ignore
     )
+    if not switched_tokens:
+        print(
+            "Account switch to OPTIONS account failed or not needed. Aborting positions fetch."
+        )
+        positions = None
+    else:
+        # Update tokens after switch
+        security_token = switched_tokens["security_token"]
+        cst = switched_tokens["cst"]
+        current_acct = IG_OPTIONS_ACCOUNT  # If the switch was successful
+
+        positions = get_positions(
+            security_token, cst, IG_API_KEY, IG_OPTIONS_ACCOUNT, IG_BASE_URL  # type: ignore
+        )
 
     if positions:
-        # Analyze portfolio
         portfolio_analysis = analyze_portfolio(positions)
-
-        # Print detailed position information
         print("\nDetailed Position Analysis:")
         print(json.dumps([p.to_dict() for p in positions], indent=4))
-
-        # Print portfolio summary
         print("\nPortfolio Summary:")
         print(json.dumps(portfolio_analysis, indent=4))
     else:
-        print("Failed to retrieve positions")
+        print("Failed to retrieve positions.")
+
+    # 4) Create a position on the "CFD" account
+    print(f"\nNow creating a position in {IG_CFD_ACCOUNT}...")
+    switched_tokens = switch_account_if_needed(
+        security_token, cst, IG_API_KEY, IG_BASE_URL, IG_CFD_ACCOUNT, current_acct  # type: ignore
+    )
+    if not switched_tokens:
+        print("Account switch to CFD account failed or not needed. Cannot place trade.")
+        new_position = None
+    else:
+        security_token = switched_tokens["security_token"]
+        cst = switched_tokens["cst"]
+        current_acct = IG_CFD_ACCOUNT
+
+        new_position = create_position(
+            security_token=security_token,
+            cst=cst,
+            api_key=IG_API_KEY,  # type: ignore
+            account_number=IG_CFD_ACCOUNT,  # type: ignore
+            url=IG_BASE_URL,
+            epic="IX.D.SPTRD.IFS.IP",  # Example epic
+            direction="BUY",
+            size=1.5,
+            expiry="-",  # or "DFB", "DEC-25", etc.
+            currency="GBP",  # Ensure it's valid for your CFD account
+        )
+
+    print("\nResult from create_position:")
+    if new_position:
+        print(json.dumps(new_position, indent=4))
+    else:
+        print("Failed to create position or got no response.")
+
+    # 5) Re-check positions in the CFD account
+    print(f"\nRe-checking positions in {IG_CFD_ACCOUNT}...")
+    cfd_positions = get_positions(
+        security_token, cst, IG_API_KEY, IG_CFD_ACCOUNT, IG_BASE_URL  # type: ignore
+    )
+    if cfd_positions:
+        print("Open CFD positions after trade attempt:")
+        print(json.dumps([p.to_dict() for p in cfd_positions], indent=4))
+    else:
+        print("Failed to retrieve CFD positions after trade attempt.")

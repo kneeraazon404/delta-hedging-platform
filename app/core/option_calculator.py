@@ -1,5 +1,3 @@
-# option_calculator.py
-
 import logging
 from typing import Dict, Tuple
 
@@ -18,7 +16,7 @@ class OptionCalculator:
         self.min_volatility = HEDGE_SETTINGS["min_volatility"]
         self.max_volatility = HEDGE_SETTINGS["max_volatility"]
 
-    def validate_inputs(self, S: float, K: float, T: float, sigma: float):
+    def validate_inputs(self, S: float, K: float, T: float, sigma: float) -> None:
         """Validate inputs with detailed error messages"""
         if S <= 0:
             raise ValueError(f"Stock price (S={S}) must be positive")
@@ -36,17 +34,17 @@ class OptionCalculator:
         try:
             # Apply minimum values
             min_time = 0.001  # Minimum 1 day = 1/365
-            min_vol = 0.05  # Minimum 5% volatility
+            min_vol = self.min_volatility
+            max_vol = self.max_volatility
 
-            T = max(T, min_time)  # Ensure reasonable time value
-            sigma = max(sigma, min_vol)  # Use minimum volatility
+            T = max(T, min_time)
+            sigma = max(min(sigma, max_vol), min_vol)
 
-            logger.info(f"Using adjusted inputs: T={T}, sigma={sigma}")
+            logger.debug(f"Using adjusted inputs: T={T}, sigma={sigma}")
 
             d1 = (np.log(S / K) + (self.rate + sigma**2 / 2) * T) / (sigma * np.sqrt(T))
             d2 = d1 - sigma * np.sqrt(T)
 
-            logger.debug(f"d1={d1}, d2={d2}")
             return d1, d2
 
         except Exception as e:
@@ -56,10 +54,7 @@ class OptionCalculator:
     def calculate_delta(
         self, S: float, K: float, T: float, sigma: float, option_type: OptionType
     ) -> float:
-        """
-        Calculate option delta using Black-Scholes formula
-        For sold options, delta needs to be reversed for hedging
-        """
+        """Calculate option delta using Black-Scholes formula"""
         try:
             self.validate_inputs(S, K, T, sigma)
             d1, _ = self._calculate_d1_d2(S, K, T, sigma)
@@ -69,13 +64,13 @@ class OptionCalculator:
             else:
                 delta = float(norm.cdf(d1) - 1)
 
-            logging.info(
+            logger.debug(
                 f"Delta calculated: {delta} for S={S}, K={K}, T={T}, sigma={sigma}"
             )
             return delta
 
         except Exception as e:
-            logging.error(f"Delta calculation error: {str(e)}")
+            logger.error(f"Delta calculation error: {str(e)}")
             raise
 
     def calculate_greeks(
@@ -83,50 +78,39 @@ class OptionCalculator:
     ) -> Dict[str, float]:
         """Calculate Greeks with proper validation and realistic values"""
         try:
-            # Better input validation with minimum values
-            if S <= 0 or K <= 0:
-                raise ValueError("Stock and strike prices must be positive")
+            self.validate_inputs(S, K, T, sigma)
 
-            # Normalize time to expiry - minimum 1 day
-            T = max(T, 1 / 365)
+            # Input normalization
+            T = max(T, 0.001)  # Minimum 1 day
+            sigma = max(min(sigma, self.max_volatility), self.min_volatility)
 
-            # Use realistic volatility range (5% - 100%)
-            sigma = max(min(sigma, 1.0), 0.05)
-
-            # Calculate d1 and d2
             d1 = (np.log(S / K) + (self.rate + sigma**2 / 2) * T) / (sigma * np.sqrt(T))
             d2 = d1 - sigma * np.sqrt(T)
 
-            # Common terms
-            sqrt_t = np.sqrt(T)
+            # Common terms for efficiency
             npd1 = norm.pdf(d1)
+            sqrt_t = np.sqrt(T)
             exp_rt = np.exp(-self.rate * T)
 
-            # Delta calculation
+            # Calculate Greeks based on option type
             if option_type == OptionType.CALL:
                 delta = norm.cdf(d1)
-            else:
-                delta = norm.cdf(d1) - 1
-
-            # Gamma calculation
-            gamma = npd1 / (S * sigma * sqrt_t)
-
-            # Theta calculation
-            theta_time = -(S * sigma * npd1) / (2 * sqrt_t)
-            if option_type == OptionType.CALL:
-                theta = theta_time - self.rate * K * exp_rt * norm.cdf(d2)
-            else:
-                theta = theta_time + self.rate * K * exp_rt * norm.cdf(-d2)
-            theta = theta / 365  # Convert to daily decay
-
-            # Vega calculation (in percentage terms)
-            vega = S * sqrt_t * npd1 / 100
-
-            # Rho calculation (in percentage terms)
-            if option_type == OptionType.CALL:
+                theta = (
+                    -S * sigma * npd1 / (2 * sqrt_t)
+                    - self.rate * K * exp_rt * norm.cdf(d2)
+                ) / 365
                 rho = K * T * exp_rt * norm.cdf(d2) / 100
             else:
+                delta = norm.cdf(d1) - 1
+                theta = (
+                    -S * sigma * npd1 / (2 * sqrt_t)
+                    + self.rate * K * exp_rt * norm.cdf(-d2)
+                ) / 365
                 rho = -K * T * exp_rt * norm.cdf(-d2) / 100
+
+            # Common Greeks for both types
+            gamma = npd1 / (S * sigma * sqrt_t)
+            vega = S * sqrt_t * npd1 / 100
 
             greeks = {
                 "delta": float(delta),
@@ -134,9 +118,14 @@ class OptionCalculator:
                 "theta": float(theta),
                 "vega": float(vega),
                 "rho": float(rho),
+                "time_value": float(
+                    S * norm.cdf(d1) - K * exp_rt * norm.cdf(d2)
+                    if option_type == OptionType.CALL
+                    else K * exp_rt * norm.cdf(-d2) - S * norm.cdf(-d1)
+                ),
             }
 
-            logger.info(f"Greeks calculated: {greeks}")
+            logger.debug(f"Greeks calculated: {greeks}")
             return greeks
 
         except Exception as e:
@@ -151,9 +140,56 @@ class OptionCalculator:
         Applies minimum and maximum constraints
         """
         try:
+            if position_size <= 0:
+                raise ValueError("Position size must be positive")
+
             hedge_size = abs(delta * position_size)
-            return max(min_size, min(max_size, hedge_size))
+
+            # Apply constraints
+            hedge_size = max(min_size, min(max_size, hedge_size))
+
+            logger.debug(
+                f"Calculated hedge size: {hedge_size} (delta={delta}, position_size={position_size})"
+            )
+            return float(hedge_size)
 
         except Exception as e:
-            logging.error(f"Hedge size calculation error: {str(e)}")
+            logger.error(f"Hedge size calculation error: {str(e)}")
+            raise
+
+    def calculate_implied_volatility(
+        self,
+        S: float,
+        K: float,
+        T: float,
+        option_price: float,
+        option_type: OptionType,
+        tolerance: float = 0.0001,
+        max_iterations: int = 100,
+    ) -> float:
+        """Calculate implied volatility using Newton-Raphson method"""
+        try:
+            self.validate_inputs(S, K, T, 0.1)  # Initial validation
+
+            sigma = 0.3  # Initial guess
+            for i in range(max_iterations):
+                greeks = self.calculate_greeks(S, K, T, sigma, option_type)
+                price = greeks["time_value"]
+                vega = greeks["vega"]
+
+                diff = option_price - price
+                if abs(diff) < tolerance:
+                    return sigma
+
+                if abs(vega) < 1e-10:  # Avoid division by zero
+                    sigma = sigma + 0.01
+                    continue
+
+                sigma = sigma + diff / vega
+                sigma = max(min(sigma, self.max_volatility), self.min_volatility)
+
+            raise ValueError("Implied volatility calculation did not converge")
+
+        except Exception as e:
+            logger.error(f"Implied volatility calculation error: {str(e)}")
             raise
