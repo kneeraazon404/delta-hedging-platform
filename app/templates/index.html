@@ -422,7 +422,10 @@
     }
 
     function updateHedgeStatusDisplay(status) {
-        const statusHtml = `
+        const statusDiv = document.createElement('div');
+        statusDiv.className = 'response-item mb-6 border-b pb-4';
+        
+        statusDiv.innerHTML = `
             <div class="bg-gray-50 p-4 rounded-lg mb-4">
                 <h3 class="font-semibold mb-2">Hedge Status</h3>
                 <div class="space-y-2">
@@ -448,19 +451,22 @@
                     ` : ''}
                 </div>
             </div>
+            <div class="mt-4 text-xs text-gray-500">
+                Response time: ${formatTimestamp(new Date())}
+            </div>
         `;
         
-        // Insert at the top of response display
-        const existingContent = responseDisplay.innerHTML;
-        responseDisplay.innerHTML = statusHtml + existingContent;
+        // Insert new status at the top
+        responseDisplay.insertBefore(statusDiv, responseDisplay.firstChild);
     }
 
     // Display Functions
     function displayResponse(data) {
-        let content = '';
+        let content = document.createElement('div');
+        content.className = 'response-item mb-6 border-b pb-4';
 
         if (data.error) {
-            content += `
+            content.innerHTML += `
                 <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
                     ${data.message || data.error}
                 </div>
@@ -468,24 +474,29 @@
         }
 
         if (data.positions) {
-            content += displayPositions(data.positions);
+            content.innerHTML += displayPositions(data.positions);
         }
 
         if (data.analysis) {
-            content += displayAnalysis(data.analysis);
+            content.innerHTML += displayAnalysis(data.analysis);
         }
 
         if (data.hedge_status) {
-            content += displayHedgeStatus(data.hedge_status);
+            content.innerHTML += displayHedgeStatus(data.hedge_status);
         }
 
-        content += `
+        // Add timestamp and raw data
+        content.innerHTML += `
             <div class="mt-4 text-xs text-gray-500">
                 Response time: ${formatTimestamp(new Date())}
             </div>
+            <pre class="mt-2 bg-gray-50 p-4 rounded text-sm overflow-auto">
+                ${JSON.stringify(data, null, 2)}
+            </pre>
         `;
 
-        responseDisplay.innerHTML = content;
+        // Insert new content at the top
+        responseDisplay.insertBefore(content, responseDisplay.firstChild);
     }
 
     function displayPositions(positions) {
