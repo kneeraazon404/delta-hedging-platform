@@ -1,13 +1,10 @@
 # app/core/delta_hedger.py
-import json
 import logging
-import time
 from datetime import datetime
 from typing import Dict, Optional
 
 from app.core.option_calculator import OptionCalculator
-from app.models.enums import OptionType, OrderDirection, OrderType
-from app.models.hedge_record import HedgeRecord
+from app.models.enums import OptionType, OrderDirection
 from app.models.position import Position
 from app.services.ig_client import IGClient
 from config.settings import HEDGE_SETTINGS as _hedge_settings

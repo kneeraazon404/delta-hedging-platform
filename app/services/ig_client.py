@@ -43,7 +43,7 @@ class IGClient:
         self.max_retries = 3
         self.retry_delay = 2
         self.request_interval = float(_hedge_settings.get("api_request_interval", 1.0))
-
+        print(f"self user account type: {self.account_id}")
         self.login()
 
     def _validate_credentials(self) -> None:

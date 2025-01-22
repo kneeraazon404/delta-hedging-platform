@@ -14,7 +14,6 @@ from config.settings import HEDGE_SETTINGS as _hedge_settings
 
 # Type alias for Flask responses
 ApiResponse = Union[Response, Tuple[Response, int]]
-
 logger = logging.getLogger(__name__)
 
 # Initialize clients with proper error handling
