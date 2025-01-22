@@ -204,7 +204,7 @@
                                 Hedge All
                             </button>
                             <button id="getHedgeStatusBtn" class="w-full bg-teal-500 text-white p-2 rounded hover:bg-teal-600 transition">
-                                Hedge Status
+                                Get Hedge Status
                             </button>
                         </div>
                     </div>
@@ -376,7 +376,7 @@
                     'Content-Type': 'application/json'
                 },
                 ...options,
-                body: options.body || undefined  // Add this line
+                body: options.body || undefined
             });
     
             if (!response.ok) {
@@ -401,6 +401,58 @@
         } finally {
             isLoading = false;
         }
+    }
+
+    // Hedge Status Functions
+    async function getHedgeStatus() {
+        try {
+            disableHedgeStatusButton();
+            const response = await makeApiCall('/hedge/status');
+            if (response && !response.error) {
+                updateHedgeStatusDisplay(response);
+            } else {
+                showToast(response?.error || 'Failed to get hedge status', 'error');
+            }
+        } catch (error) {
+            console.error('Get hedge status error:', error);
+            showToast(`Failed to get hedge status: ${error.message || 'Unknown error'}`, 'error');
+        } finally {
+            enableHedgeStatusButton();
+        }
+    }
+
+    function updateHedgeStatusDisplay(status) {
+        const statusHtml = `
+            <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                <h3 class="font-semibold mb-2">Hedge Status</h3>
+                <div class="space-y-2">
+                    <div>
+                        <span class="text-gray-600">Last Update:</span>
+                        <span>${status.last_update ? formatTimestamp(status.last_update) : 'N/A'}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Total Hedges:</span>
+                        <span>${status.total_hedges || 0}</span>
+                    </div>
+                    ${status.active_hedges !== undefined ? `
+                    <div>
+                        <span class="text-gray-600">Active Hedges:</span>
+                        <span>${status.active_hedges}</span>
+                    </div>
+                    ` : ''}
+                    ${status.pending_hedges !== undefined ? `
+                    <div>
+                        <span class="text-gray-600">Pending Hedges:</span>
+                        <span>${status.pending_hedges}</span>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+        
+        // Insert at the top of response display
+        const existingContent = responseDisplay.innerHTML;
+        responseDisplay.innerHTML = statusHtml + existingContent;
     }
 
     // Display Functions
@@ -431,9 +483,6 @@
             <div class="mt-4 text-xs text-gray-500">
                 Response time: ${formatTimestamp(new Date())}
             </div>
-            <pre class="mt-4 bg-gray-50 p-4 rounded text-sm overflow-auto">
-                ${JSON.stringify(data, null, 2)}
-            </pre>
         `;
 
         responseDisplay.innerHTML = content;
@@ -515,21 +564,55 @@
     }
 
     function displayHedgeStatus(status) {
+        if (!status) {
+            return `
+                <div class="bg-yellow-50 p-4 rounded-lg mb-4">
+                    <h3 class="font-semibold mb-2">Hedge Status</h3>
+                    <div class="text-yellow-600">No hedge status data available</div>
+                </div>
+            `;
+        }
+
         return `
             <div class="bg-gray-50 p-4 rounded-lg mb-4">
                 <h3 class="font-semibold mb-2">Hedge Status</h3>
                 <div class="space-y-2">
                     <div>
                         <span class="text-gray-600">Last Update:</span>
-                        <span>${formatTimestamp(status.last_update)}</span>
+                        <span>${status.last_update ? formatTimestamp(status.last_update) : 'N/A'}</span>
                     </div>
                     <div>
                         <span class="text-gray-600">Total Hedges:</span>
                         <span>${status.total_hedges || 0}</span>
                     </div>
+                    ${status.active_hedges !== undefined ? `
+                    <div>
+                        <span class="text-gray-600">Active Hedges:</span>
+                        <span>${status.active_hedges}</span>
+                    </div>
+                    ` : ''}
+                    ${status.pending_hedges !== undefined ? `
+                    <div>
+                        <span class="text-gray-600">Pending Hedges:</span>
+                        <span>${status.pending_hedges}</span>
+                    </div>
+                    ` : ''}
                 </div>
             </div>
         `;
+    }
+
+    // Button State Management
+    function disableHedgeStatusButton() {
+        const button = document.getElementById('getHedgeStatusBtn');
+        button.disabled = true;
+        button.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+
+    function enableHedgeStatusButton() {
+        const button = document.getElementById('getHedgeStatusBtn');
+        button.disabled = false;
+        button.classList.remove('opacity-50', 'cursor-not-allowed');
     }
 
     // Modal Management
@@ -569,8 +652,11 @@
             return;
         }
         
+        // Immediately get initial status
+        getHedgeStatus();
+        
         const interval = setInterval(async () => {
-            await makeApiCall('/hedge/status');
+            await getHedgeStatus();
             await makeApiCall('/positions');
         }, currentSettings.hedge_interval * 1000);
         
@@ -633,197 +719,115 @@
         showToast('Response cleared');
     });
 
-    async function performHedge(positionId, reason, additionalData = {}) {
+    document.getElementById('getHedgeStatusBtn').addEventListener('click', getHedgeStatus);
+
+    document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
+        const hedgePositionId = document.getElementById('hedgePositionId').value;
+        if (!hedgePositionId) {
+            showToast('Please enter a Position ID to hedge', 'error');
+            return;
+        }
+
         try {
-            const response = await makeApiCall(`/hedge/${positionId}`, { 
-                method: 'POST',
-                body: JSON.stringify({
-                    position_id: positionId,
-                    reason: reason,
-                    ...additionalData
-                })
-            });
-    
-            // Handle different response statuses
-            switch (response.status) {
-                case 'hedged':
-                    showToast('Position hedged successfully', 'success');
-                    break;
-                case 'market_data_error':
-                    showToast(`Market data unavailable for ${response.epic}`, 'warning');
-                    // Optionally log or handle differently
-                    break;
-                case 'hedge_creation_failed':
-                    showToast('Failed to create hedge position', 'error');
-                    break;
-                default:
-                    if (response.error) {
-                        showToast(`Hedge failed: ${response.error}`, 'error');
-                    }
+            const positionResponse = await makeApiCall(`/positions/${hedgePositionId}`);
+            
+            if (positionResponse.analysis?.needs_hedge || 
+                Math.abs(positionResponse.analysis?.delta?.delta) > currentSettings.delta_threshold) {
+                showConfirmationModal(hedgePositionId, positionResponse);
+            } else {
+                await makeApiCall(`/hedge/${hedgePositionId}`, { 
+                    method: 'POST',
+                    body: JSON.stringify({
+                        position_id: hedgePositionId,
+                        reason: 'Manual hedge'
+                    })
+                });
             }
-    
-            return response;
         } catch (error) {
-            console.error('Hedge performance error:', error);
-            showToast(`Hedging error: ${error.message}`, 'error');
-            throw error;
+            showToast('Failed to hedge position', 'error');
         }
-    }
-document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
-    const hedgePositionId = document.getElementById('hedgePositionId').value;
-    if (!hedgePositionId) {
-        showToast('Please enter a Position ID to hedge', 'error');
-        return;
-    }
+    });
 
-    try {
-        const positionResponse = await makeApiCall(`/positions/${hedgePositionId}`);
-        
-        if (positionResponse.analysis?.needs_hedge || 
-            Math.abs(positionResponse.analysis?.delta?.delta) > currentSettings.delta_threshold) {
-            // Show confirmation modal for high-risk positions
-            showConfirmationModal(hedgePositionId, positionResponse);
-        } else {
-            // Proceed with hedging directly if below threshold
-            await makeApiCall(`/hedge/${hedgePositionId}`, { 
+    document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
+        try {
+            const response = await makeApiCall('/hedge/all', { 
                 method: 'POST',
                 body: JSON.stringify({
-                    position_id: hedgePositionId,
-                    reason: 'Manual hedge'
+                    reason: 'Bulk hedge operation'
                 })
             });
-        }
-    } catch (error) {
-        showToast('Failed to hedge position', 'error');
-    }
-});
 
-document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
-    try {
-        const response = await makeApiCall('/hedge/all', { 
-            method: 'POST',
-            body: JSON.stringify({}) // Empty body if no parameters needed
+            if (response && !response.error) {
+                showToast('All positions hedged successfully', 'success');
+            } else {
+                showToast(response?.error || 'Failed to hedge all positions', 'error');
+            }
+        } catch (error) {
+            console.error('Hedge all positions error:', error);
+            showToast(`Failed to hedge all positions: ${error.message || 'Unknown error'}`, 'error');
+        }
+    });
+
+    document.getElementById('confirmHedgeBtn').addEventListener('click', async () => {
+        if (!pendingHedgePosition) {
+            showToast('No pending hedge', 'error');
+            return;
+        }
+
+        try {
+            const response = await makeApiCall(`/hedge/${pendingHedgePosition}`, { 
+                method: 'POST',
+                body: JSON.stringify({
+                    position_id: pendingHedgePosition,
+                    reason: 'High delta risk confirmation',
+                    metrics: pendingHedgeData?.analysis?.metrics || {}
+                })
+            });
+
+            if (response && !response.error) {
+                hideConfirmationModal();
+                showToast('Position hedged successfully', 'success');
+            }
+        } catch (error) {
+            console.error('Confirm hedge error:', error);
+            showToast(`Failed to hedge position: ${error.message || 'Unknown error'}`, 'error');
+        }
+    });
+
+    // Settings form submission
+    settingsForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const newSettings = {
+            min_hedge_size: parseFloat(document.getElementById('minHedgeSize').value),
+            max_hedge_size: parseFloat(document.getElementById('maxHedgeSize').value),
+            hedge_interval: parseInt(document.getElementById('hedgeInterval').value),
+            delta_threshold: parseFloat(document.getElementById('deltaThreshold').value)
+        };
+
+        try {
+            const response = await makeApiCall('/settings', {
+                method: 'PUT',
+                body: JSON.stringify(newSettings)
+            });
+
+            if (!response.error) {
+                currentSettings = newSettings;
+                hideSettingsModal();
+                showToast('Settings updated successfully');
+            }
+        } catch (error) {
+            showToast('Failed to update settings', 'error');
+        }
+    });
+
+    // Modal close buttons
+    document.querySelectorAll('.close-modal').forEach(button => {
+        button.addEventListener('click', () => {
+            hideSettingsModal();
+            hideConfirmationModal();
         });
-        if (!response.error) {
-            showToast('All positions hedged successfully');
-        }
-    } catch (error) {
-        showToast('Failed to hedge all positions', 'error');
-    }
-});
+    });
 
-document.getElementById('confirmHedgeBtn').addEventListener('click', async () => {
-    if (!pendingHedgePosition) {
-        showToast('No pending hedge', 'error');
-        return;
-    }
-
-    try {
-        await makeApiCall(`/hedge/${pendingHedgePosition}`, { 
-            method: 'POST',
-            body: JSON.stringify({
-                position_id: pendingHedgePosition,
-                reason: 'High delta risk confirmation'
-            })
-        });
-        hideConfirmationModal();
-        showToast('Position hedged successfully');
-    } catch (error) {
-        showToast('Failed to hedge position', 'error');
-    }
-});// Hedging Event Listeners
-Copydocument.getElementById('hedgePositionBtn').addEventListener('click', async () => {
-    const hedgePositionId = document.getElementById('hedgePositionId').value;
-    if (!hedgePositionId) {
-        showToast('Please enter a Position ID to hedge', 'error');
-        return;
-    }
-
-    try {
-        // Add loading state
-        disableHedgeButton();
-
-        const positionResponse = await makeApiCall(`/positions/${hedgePositionId}`);
-        
-        // Robust null checking and default values
-        const deltaThreshold = currentSettings?.delta_threshold || 0.5;
-        const analysis = positionResponse?.analysis || {};
-        const delta = analysis?.delta?.delta ?? 0;
-
-        // More comprehensive hedge decision logic
-        const needsHedge = 
-            analysis.needs_hedge === true || 
-            Math.abs(delta) > deltaThreshold;
-
-        if (needsHedge) {
-            // Show confirmation modal for high-risk positions
-            showConfirmationModal(hedgePositionId, positionResponse);
-        } else {
-            // Proceed with hedging directly if below threshold
-            await performHedge(hedgePositionId, 'Manual hedge');
-        }
-    } catch (error) {
-        console.error('Hedge position error:', error);
-        showToast(`Failed to hedge position: ${error.message || 'Unknown error'}`, 'error');
-    } finally {
-        // Ensure button is re-enabled
-        enableHedgeButton();
-    }
-});
-
-document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
-    try {
-        // Add loading state
-        disableHedgeAllButton();
-
-        const response = await makeApiCall('/hedge/all', { 
-            method: 'POST',
-            body: JSON.stringify({
-                reason: 'Bulk hedge operation'
-            })
-        });
-
-        // More robust response handling
-        if (response && !response.error) {
-            showToast('All positions hedged successfully', 'success');
-        } else {
-            showToast(response?.error || 'Failed to hedge all positions', 'error');
-        }
-    } catch (error) {
-        console.error('Hedge all positions error:', error);
-        showToast(`Failed to hedge all positions: ${error.message || 'Unknown error'}`, 'error');
-    } finally {
-        // Ensure button is re-enabled
-        enableHedgeAllButton();
-    }
-});
-
-document.getElementById('confirmHedgeBtn').addEventListener('click', async () => {
-    if (!pendingHedgePosition) {
-        showToast('No pending hedge', 'error');
-        return;
-    }
-
-    try {
-        // Disable confirm button during operation
-        disableConfirmHedgeButton();
-
-        // Extract metrics safely
-        const metrics = pendingHedgeData?.analysis?.metrics || {};
-
-        await performHedge(pendingHedgePosition, 'High delta risk confirmation', metrics);
-        
-        // Close modal and show success
-        hideConfirmationModal();
-        showToast('Position hedged successfully', 'success');
-    } catch (error) {
-        console.error('Confirm hedge error:', error);
-        showToast(`Failed to hedge position: ${error.message || 'Unknown error'}`, 'error');
-    } finally {
-        // Ensure confirm button is re-enabled
-        enableConfirmHedgeButton();
-    }
-});
     // Initialize
     document.addEventListener('DOMContentLoaded', async () => {
         await loadSettings();
