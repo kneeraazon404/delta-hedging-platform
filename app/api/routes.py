@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize clients with proper error handling
 try:
-    ig_client = IGClient(use_mock=False)  # Using real client
+    ig_client = IGClient()  # Using real client
     hedger = DeltaHedger(ig_client)
 except Exception as e:
     logger.critical(f"Failed to initialize clients: {str(e)}")
@@ -90,6 +90,7 @@ def list_positions() -> ApiResponse:
                 HTTPStatus.BAD_REQUEST,
             )
 
+        print(positions_response)
         positions = positions_response.get("positions", [])
         if not positions:
             return (
@@ -244,11 +245,11 @@ def hedge_position(position_id: str) -> ApiResponse:
             except (ValueError, TypeError):
                 return jsonify({"error": "Invalid hedge size"}), HTTPStatus.BAD_REQUEST
 
-        result = hedger.hedge_position(
-            position_id=position_id,
-            force_hedge=force_hedge,
-            hedge_size=hedge_size,
-        )
+        hedge_params = {"position_id": position_id, "force_hedge": force_hedge}
+        if hedge_size is not None:
+            hedge_params["hedge_size"] = hedge_size
+
+        result = hedger.hedge_position(**hedge_params)
 
         if "error" in result:
             return jsonify(result), HTTPStatus.BAD_REQUEST
@@ -381,17 +382,30 @@ def get_position_analytics(position_id: str) -> ApiResponse:
 
 @app.route("/api/hedge/all", methods=["POST"])
 def hedge_all_positions() -> ApiResponse:
-    """Hedge all positions that need hedging"""
+    """Hedge all positions with manual override support"""
     try:
+        data = validate_json_request() or {}
+        is_manual = data.get("manual", True)
+
         positions_status = hedger.get_all_positions_status()
         if "error" in positions_status:
             return jsonify(positions_status), HTTPStatus.BAD_REQUEST
 
         results = []
         for pos_id, status in positions_status.items():
-            if status.get("needs_hedge", False):
-                result = hedger.hedge_position(pos_id, force_hedge=True)
-                results.append({"position_id": pos_id, "result": result})
+            try:
+                if is_manual or status.get("needs_hedge", False):
+                    result = hedger.hedge_position(pos_id, force_hedge=True)
+                    results.append(
+                        {
+                            "position_id": pos_id,
+                            "result": result,
+                            "manually_hedged": is_manual,
+                        }
+                    )
+            except Exception as e:
+                logger.error(f"Error hedging position {pos_id}: {str(e)}")
+                results.append({"position_id": pos_id, "error": str(e)})
 
         if not results:
             return (
@@ -399,13 +413,18 @@ def hedge_all_positions() -> ApiResponse:
                     {
                         "message": "No positions require hedging",
                         "positions_checked": len(positions_status),
+                        "mode": "manual" if is_manual else "automatic",
                     }
                 ),
                 HTTPStatus.OK,
             )
 
         return jsonify(
-            {"message": f"Hedged {len(results)} positions", "results": results}
+            {
+                "message": f"Hedged {len(results)} positions",
+                "mode": "manual" if is_manual else "automatic",
+                "results": results,
+            }
         )
 
     except Exception as e:

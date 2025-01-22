@@ -1,6 +1,6 @@
 # config/settings.py
 HEDGE_SETTINGS = {
-    "min_hedge_size": 0.01,
+    "min_hedge_size": 0.00,
     "max_hedge_size": 100.0,
     "hedge_interval": 60,  # seconds
     "default_rate": 0.05,  # Risk-free rate

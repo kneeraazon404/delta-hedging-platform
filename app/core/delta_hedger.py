@@ -1,5 +1,7 @@
 # app/core/delta_hedger.py
+import json
 import logging
+import time
 from datetime import datetime
 from typing import Dict, Optional
 
@@ -56,164 +58,148 @@ class DeltaHedger:
             return None
 
     def calculate_position_delta(self, position: Position) -> Dict:
-        """Calculate delta and hedging requirements"""
+        """Calculate delta with improved error handling and edge case support"""
         try:
-            if not isinstance(position, Position):
-                return {"error": "Invalid position object"}
+            # Handle extremely short time to expiry
+            if position.time_to_expiry <= 0.001:
+                logger.warning(f"Position near expiry: {position.deal_id}")
 
-            if not position.epic:
-                return {"error": "Position epic is None"}
+                # Determine intrinsic value based on current market price
+                market_data = self.ig_client.get_market_data(position.epic)
+                if not market_data:
+                    logger.error("Failed to fetch market data for near-expiry position")
+                    return {"error": "Failed to fetch market data"}
 
-            if position.strike <= 0:
-                return {"error": "Strike price must be positive"}
+                current_price = float(market_data.get("price", 0))
 
+                # Intrinsic value calculation for call and put
+                if position.option_type == OptionType.CALL:
+                    intrinsic_value = max(current_price - position.strike, 0)
+                else:  # PUT
+                    intrinsic_value = max(position.strike - current_price, 0)
+
+                # If intrinsic value is zero, delta is zero
+                delta = (
+                    0 if intrinsic_value == 0 else (1 if intrinsic_value > 0 else -1)
+                )
+
+                return {
+                    "current_price": current_price,
+                    "delta": delta,
+                    "position_delta": delta * position.size * position.contract_size,
+                    "greeks": {
+                        "delta": delta,
+                        "gamma": 0,
+                        "theta": 0,
+                        "vega": 0,
+                        "rho": 0,
+                    },
+                    "needs_hedge": False,  # Near expiry, likely to be settled soon
+                }
+
+            # Normal delta calculation
             market_data = self.ig_client.get_market_data(position.epic)
             if not market_data:
                 return {"error": "Failed to fetch market data"}
 
-            current_price = (market_data["bid"] + market_data["offer"]) / 2
-            volatility = market_data.get("volatility", 0.2)
+            current_price = float(market_data.get("price", 0))
+            if current_price <= 0:
+                return {"error": "Invalid market price"}
+
+            # Use existing volatility if available, otherwise use a default
+            volatility = max(market_data.get("volatility", 0.2), 0.1)
+
+            # Ensure reasonable time to expiry
+            time_to_expiry = max(position.time_to_expiry, 0.001)
 
             # Calculate Greeks
             greeks = self.calculator.calculate_greeks(
                 S=current_price,
                 K=position.strike,
-                T=position.time_to_expiry,
+                T=time_to_expiry,
                 sigma=volatility,
                 option_type=position.option_type,
             )
 
-            # Calculate position delta
-            position_delta = greeks["delta"] * position.size * position.contract_size
-            current_hedge_delta = -position.hedge_size if position.hedge_size else 0
-            net_delta = position_delta + current_hedge_delta
-
-            # Determine if hedging is needed
-            needs_hedge = abs(net_delta) > self.delta_threshold
-            suggested_size = 0
-
-            if needs_hedge:
-                suggested_size = max(
-                    min(abs(net_delta), self.max_hedge_size), self.min_hedge_size
-                ) * (-1 if net_delta > 0 else 1)
-
             return {
                 "current_price": current_price,
-                "delta": net_delta,
-                "position_delta": position_delta,
-                "hedge_delta": current_hedge_delta,
-                "needs_hedge": needs_hedge,
-                "suggested_hedge_size": suggested_size,
+                "delta": greeks["delta"],
+                "position_delta": greeks["delta"]
+                * position.size
+                * position.contract_size,
                 "greeks": greeks,
+                "needs_hedge": abs(greeks["delta"]) > self.delta_threshold,
             }
 
         except Exception as e:
-            logger.error(f"Error calculating delta: {str(e)}")
+            logger.error(f"Delta calculation error: {str(e)}")
             return {"error": str(e)}
 
-    def hedge_position(
-        self,
-        position_id: str,
-        force_hedge: bool = False,
-        hedge_size: Optional[float] = None,
-    ) -> Dict:
-        """Execute hedging for a position with proper error handling"""
+    def hedge_position(self, position_id: str, hedge_size: float = None, force_hedge: bool = False) -> Dict:  # type: ignore
+        """Execute hedging with CFD positions"""
         try:
-            # Get and validate position
+            # Retrieve position
             position = self.get_position(position_id)
             if not position:
                 return {"error": "Position not found"}
 
-            if not position.epic or not isinstance(position.epic, str):
-                return {"error": "Invalid epic value"}
-
-            # Get delta information
+            # Calculate delta
             delta_info = self.calculate_position_delta(position)
             if "error" in delta_info:
-                return delta_info
+                return {"error": delta_info["error"]}
 
-            # Determine hedge size
-            if hedge_size is not None:
-                target_size = hedge_size
+            # Robust delta extraction and validation
+            delta = delta_info.get("delta")
+            if delta is None:
+                return {"error": "Delta calculation failed: No delta value returned"}
+
+            # Ensure delta is a numeric value
+            try:
+                delta = float(delta)
+            except (TypeError, ValueError):
+                return {"error": f"Invalid delta value: {delta}"}
+
+            # Detailed logging
+            logger.info(f"Position details for hedging:")
+            logger.info(f"Position ID: {position_id}")
+            logger.info(f"Delta: {delta}")
+            logger.info(f"Position size: {position.size}")
+            logger.info(f"Contract size: {position.contract_size}")
+            logger.info(f"Time to expiry: {position.time_to_expiry}")
+
+            # Near-expiry or zero delta handling
+            if delta == 0 or position.time_to_expiry <= 0.001:
+                # For near-expiry positions, use a small hedge
+                hedge_size = max(0.01, position.size * 0.1)  # 10% of position size
+                logger.info(f"Near-expiry position - Using minimal hedge: {hedge_size}")
             else:
-                if not force_hedge and abs(delta_info["delta"]) <= self.delta_threshold:
-                    return {
-                        "status": "skipped",
-                        "message": "Position delta within threshold",
-                        "delta": delta_info,
-                    }
-                target_size = delta_info["suggested_hedge_size"]
+                # Normal delta-based hedge size calculation
+                hedge_size = abs(delta) * position.size * position.contract_size
 
-            # Validate hedge size
-            if abs(target_size) < self.min_hedge_size:
-                return {
-                    "status": "skipped",
-                    "message": f"Hedge size {abs(target_size)} below minimum {self.min_hedge_size}",
-                    "delta": delta_info,
-                }
+            # Apply min and max constraints
+            hedge_size = max(0.01, hedge_size)  # Minimum 0.01
+            hedge_size = min(hedge_size, 100.0)  # Maximum 100
 
-            # Get current market price
-            market_data = self.ig_client.get_market_data(position.epic)
-            if not market_data:
-                return {"error": "Failed to get market data"}
-            current_price = market_data["price"]
+            logger.info(f"Final hedge size: {hedge_size}")
 
-            # Determine direction
-            direction = OrderDirection.BUY if target_size > 0 else OrderDirection.SELL
-            logger.info(
-                f"Attempting to create hedge position: Size={abs(target_size)}, Direction={direction.value}"
+            # Determine hedge direction
+            direction = OrderDirection.BUY if hedge_size > 0 else OrderDirection.SELL
+
+            # Create hedge position
+            hedge_result = self.ig_client.create_hedge_position(
+                epic=position.underlying_epic, direction=direction, size=abs(hedge_size)
             )
 
-            # Create LIMIT order
-            result = self.ig_client.create_position(
-                epic=position.epic,
-                direction=direction,
-                size=abs(target_size),
-                order_type=OrderType.LIMIT,
-                limit_level=current_price,
-            )
-
-            if "dealId" in result:
-                # Update position hedge information
-                position.hedge_size = target_size
-                position.hedge_deal_id = result["dealId"]
-                position.last_hedge_price = current_price
-                position.last_hedge_time = datetime.now().isoformat()
-
-                # Record the hedge
-                hedge_record = HedgeRecord(
-                    delta=delta_info["delta"],
-                    hedge_size=target_size,
-                    price=current_price,
-                    pnl=self.calculate_pnl(position, current_price),
-                )
-                position.hedge_history.append(hedge_record)
-
-                logger.info(
-                    f"Successfully created hedge position with deal ID: {result['dealId']}"
-                )
-                return {
-                    "status": "hedged",
-                    "deal_id": result["dealId"],
-                    "hedge_size": target_size,
-                    "delta": delta_info,
-                    "hedge_record": hedge_record.to_dict(),
-                }
-
-            error_msg = result.get("error", "Unknown error")
-            logger.error(f"Failed to create hedge position: {error_msg}")
-
-            # Check for specific error cases
-            if "not-supported-for-epic" in error_msg:
-                return {"error": "Market orders not supported for this instrument"}
-            elif "invalid-order-size" in error_msg:
-                return {"error": f"Invalid order size: {abs(target_size)}"}
-
-            return {"error": f"Hedge execution failed: {error_msg}"}
+            return {
+                "status": "hedged",
+                "hedge_size": hedge_size,
+                "hedge_reference": hedge_result.get("dealReference"),
+                "delta": delta_info,
+            }
 
         except Exception as e:
-            logger.error(f"Error hedging position: {str(e)}")
-            return {"error": str(e)}
+            logger.error(f"Comprehensive hedging error: {str(e)}")
+            return {"error": f"Hedging failed: {str(e)}"}
 
     def calculate_pnl(self, position: Position, current_price: float) -> float:
         """Calculate position PnL including hedges"""

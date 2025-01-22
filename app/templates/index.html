@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Delta Hedging API Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <style>
         #responseDisplay {
             height: calc(100vh - 200px);
@@ -15,7 +14,7 @@
         
         .response-item {
             position: relative;
-            margin-bottom: 1rem;
+            margin-bottom: 0.1rem;
             transition: all 0.3s ease;
         }
         
@@ -94,72 +93,146 @@
                 opacity: .5;
             }
         }
+
+        .position-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            background-color: white;
+        }
+
+        .position-card:hover {
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .greeks-display {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background-color: #f9fafb;
+            border-radius: 0.375rem;
+        }
+
+        .greek-value {
+            font-family: monospace;
+            color: #374151;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-badge.active {
+            background-color: #def7ec;
+            color: #03543f;
+        }
+
+        .status-badge.inactive {
+            background-color: #fee2e2;
+            color: #7f1d1d;
+        }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <div class="bg-white shadow-md rounded-lg overflow-hidden">
-            <div class="bg-blue-600 text-white p-4">
-                <h1 class="text-2xl font-bold">Delta Hedging API Dashboard</h1>
-                <p class="text-sm mt-1">Real-time position monitoring and hedging</p>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4">
+        <div class="bg-gray-500 shadow-lg rounded-sm overflow-hidden">
+            <!-- Header -->
+            <div class="bg-blue-600 text-white p-2 px-4">
+                <h1 class="text-2xl text-center font-bold">Delta Hedging Dashboard</h1>
+                <p class="text-md mt-2 font-bold text-center opacity-100">Real-time position monitoring and hedging</p>
             </div>
 
-            <div class="flex flex-row p-6 gap-6">
+            <!-- Main Content -->
+            <div class="flex flex-col md:flex-row p-6 gap-6">
                 <!-- Left Column - Controls -->
-                <div class="w-5/12 space-y-6">
+                <div class="w-full md:w-4/12 space-y-6">
                     <!-- Position Management -->
                     <div class="bg-gray-50 p-4 rounded-lg">
                         <h2 class="text-xl font-semibold mb-4">Position Management</h2>
-                        <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <button id="listPositionsBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 transition">List All Positions</button>
-                            <button id="getSoldPositionsBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">Get Sold Positions</button>
-                            <input type="text" id="positionId" placeholder="Position ID" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
-                            <button id="getPositionBtn" class="w-full bg-indigo-500 text-white p-2 rounded hover:bg-indigo-600 transition">Get Position Details</button>
+                        <div class="space-y-3">
+                            <button id="listPositionsBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 transition">
+                                List All Positions
+                            </button>
+                            <button id="getSoldPositionsBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">
+                                Get Sold Positions
+                            </button>
+                            <div class="flex space-x-2">
+                                <input type="text" id="positionId" placeholder="Position ID" class="flex-1 p-2 border rounded">
+                                <button id="getPositionBtn" class="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600 transition">
+                                    Get Details
+                                </button>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Delta Hedging Monitor -->
+                    <!-- Monitoring Controls -->
                     <div class="bg-gray-50 p-4 rounded-lg">
-                        <h2 class="text-xl font-semibold mb-4">Delta Hedging Monitor</h2>
-                        <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <button id="startMonitoringBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 transition">Start Monitoring</button>
-                            <button id="stopMonitoringBtn" class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600 transition">Stop Monitoring</button>
-                            <button id="getAnalyticsBtn" class="w-full bg-purple-500 text-white p-2 rounded hover:bg-purple-600 transition">Get Position Analytics</button>
-                            <div id="monitoringStatus" class="text-sm text-gray-600 text-center mt-2 p-2 rounded bg-gray-50">
-                                Monitoring: Inactive
+                        <h2 class="text-xl font-semibold mb-4">Monitoring</h2>
+                        <div class="space-y-3">
+                            <div class="flex space-x-2">
+                                <button id="startMonitoringBtn" class="flex-1 bg-green-500 text-white p-2 rounded hover:bg-green-600 transition">
+                                    Start
+                                </button>
+                                <button id="stopMonitoringBtn" class="flex-1 bg-red-500 text-white p-2 rounded hover:bg-red-600 transition" disabled>
+                                    Stop
+                                </button>
+                            </div>
+                            <div id="monitoringStatus" class="text-sm text-center p-2 rounded bg-gray-100">
+                                Status: <span class="status-badge inactive">Inactive</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- Hedging Controls -->
                     <div class="bg-gray-50 p-4 rounded-lg">
-                        <h2 class="text-xl font-semibold mb-4">Hedging Controls</h2>
-                        <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <input type="text" id="hedgePositionId" placeholder="Position ID" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
-                            <button id="hedgePositionBtn" class="w-full bg-yellow-500 text-white p-2 rounded hover:bg-yellow-600 transition">Hedge Position</button>
-                            <button id="hedgeAllPositionsBtn" class="w-full bg-orange-500 text-white p-2 rounded hover:bg-orange-600 transition">Hedge All Positions</button>
-                            <button id="getHedgeStatusBtn" class="w-full bg-teal-500 text-white p-2 rounded hover:bg-teal-600 transition">Get Hedge Status</button>
+                        <h2 class="text-xl font-semibold mb-4">Hedging</h2>
+                        <div class="space-y-3">
+                            <div class="flex space-x-2">
+                                <input type="text" id="hedgePositionId" placeholder="Position ID" class="flex-1 p-2 border rounded">
+                                <button id="hedgePositionBtn" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600 transition">
+                                    Hedge
+                                </button>
+                            </div>
+                            <button id="hedgeAllPositionsBtn" class="w-full bg-orange-500 text-white p-2 rounded hover:bg-orange-600 transition">
+                                Hedge All
+                            </button>
+                            <button id="getHedgeStatusBtn" class="w-full bg-teal-500 text-white p-2 rounded hover:bg-teal-600 transition">
+                                Hedge Status
+                            </button>
                         </div>
                     </div>
 
                     <!-- Settings -->
                     <div class="bg-gray-50 p-4 rounded-lg">
                         <h2 class="text-xl font-semibold mb-4">Settings</h2>
-                        <div class="bg-white p-4 rounded-lg shadow-md space-y-2">
-                            <button id="getSettingsBtn" class="w-full bg-gray-500 text-white p-2 rounded hover:bg-gray-600 transition">Get Settings</button>
-                            <button id="updateSettingsBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">Update Settings</button>
+                        <div class="space-y-3">
+                            <button id="getSettingsBtn" class="w-full bg-gray-500 text-white p-2 rounded hover:bg-gray-600 transition">
+                                View Settings
+                            </button>
+                            <button id="updateSettingsBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">
+                                Update Settings
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right Column - Output -->
-                <div class="w-7/12">
-                    <div class="bg-gray-50 p-4 rounded-lg sticky top-4">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-xl font-semibold">API Response</h2>
-                            <button id="clearResponseBtn" class="text-sm text-gray-500 hover:text-gray-700 transition px-3 py-1 rounded hover:bg-gray-100">Clear</button>
+                <!-- Right Column - Response Display -->
+                <div class="w-full md:w-8/12">
+                    <div class="bg-white p-2 rounded-lg shadow-md">
+                        <div class="flex justify-between items-center mb-2">
+                            <h2 class="text-xl font-semibold">Response</h2>
+                            <button id="clearResponseBtn" class="text-sm text-gray-500 hover:text-gray-700 px-3 py-1 rounded hover:bg-gray-100 transition">
+                                Clear
+                            </button>
                         </div>
-                        <pre id="responseDisplay" class="bg-white p-4 rounded-lg overflow-x-auto border border-gray-200 min-h-[600px] max-h-[800px] overflow-y-auto"></pre>
+                        <div id="responseDisplay" class="bg-gray-50 rounded-lg"></div>
                     </div>
                 </div>
             </div>
@@ -170,50 +243,59 @@
     <div id="settingsModal" class="modal">
         <div class="modal-content">
             <span class="close-modal">&times;</span>
-            <h2 class="text-xl font-bold mb-4">Update Settings</h2>
+            <h2 class="text-xl font-bold mb-4">Hedging Settings</h2>
             <form id="settingsForm" class="space-y-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700">Minimum Hedge Size</label>
-                    <input type="number" id="minHedgeSize" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" step="0.01" min="0" required>
+                    <input type="number" id="minHedgeSize" class="mt-1 block w-full rounded border p-2" step="0.01" min="0" required>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700">Maximum Hedge Size</label>
-                    <input type="number" id="maxHedgeSize" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" step="0.1" min="0" required>
+                    <input type="number" id="maxHedgeSize" class="mt-1 block w-full rounded border p-2" step="0.1" min="0" required>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700">Hedge Interval (seconds)</label>
-                    <input type="number" id="hedgeInterval" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" min="1" required>
+                    <input type="number" id="hedgeInterval" class="mt-1 block w-full rounded border p-2" min="1" required>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700">Delta Threshold</label>
-                    <input type="number" id="deltaThreshold" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" step="0.01" min="0" required>
+                    <input type="number" id="deltaThreshold" class="mt-1 block w-full rounded border p-2" step="0.01" min="0" required>
                 </div>
-                <button type="submit" id="saveSettings" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition">Save Settings</button>
+                <div class="pt-4 flex justify-end space-x-3">
+                    <button type="button" class="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition close-modal">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+                        Save
+                    </button>
+                </div>
             </form>
         </div>
     </div>
 
     <!-- Confirmation Modal -->
     <div id="confirmationModal" class="modal">
-        <div class="modal-content max-w-lg">
-            <span class="close-modal" onclick="hideConfirmationModal()">&times;</span>
-            <h2 class="text-xl font-bold mb-4">Confirm Manual Hedging</h2>
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2 class="text-xl font-bold mb-4">Confirm Hedging</h2>
             <div class="mb-4">
-                <div class="bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-4">
-                    <p class="font-medium">Premium threshold hasn't been reached.</p>
-                    <p class="mt-2">This position currently doesn't require hedging based on your settings. Are you sure you want to proceed with manual hedging?</p>
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+                    <p class="font-medium text-yellow-700">Confirm Manual Hedge</p>
+                    <p class="mt-2 text-sm text-yellow-600">
+                        This position's PnL is above the threshold. Are you sure you want to proceed with hedging?
+                    </p>
                 </div>
-                <div class="mt-4 text-gray-600">
-                    <p>Current position metrics:</p>
-                    <pre id="confirmationMetrics" class="mt-2 p-3 bg-gray-50 rounded text-sm"></pre>
+                <div class="mt-4">
+                    <h3 class="font-medium text-gray-700 mb-2">Position Details:</h3>
+                    <pre id="confirmationMetrics" class="bg-gray-50 p-3 rounded text-sm"></pre>
                 </div>
             </div>
-            <div class="flex justify-end space-x-4 mt-6">
-                <button onclick="hideConfirmationModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition">
+            <div class="flex justify-end space-x-3">
+                <button onclick="hideConfirmationModal()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition">
                     Cancel
                 </button>
                 <button id="confirmHedgeBtn" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
-                    Proceed with Hedging
+                    Proceed
                 </button>
             </div>
         </div>
@@ -224,12 +306,12 @@
 
     <script>
     // Configuration
-    const BASE_URL = "http://13.60.29.20/api";
+    const BASE_URL = 'http://localhost:8000/api';
     const DEFAULT_SETTINGS = {
-        min_hedge_size: 0.02,
-        max_hedge_size: 50.0,
+        min_hedge_size: 0.01,
+        max_hedge_size: 100.0,
         hedge_interval: 60,
-        delta_threshold: 0.1
+        delta_threshold: 0.05
     };
 
     // State
@@ -242,11 +324,27 @@
     // DOM Elements
     const responseDisplay = document.getElementById('responseDisplay');
     const settingsForm = document.getElementById('settingsForm');
-    const modal = document.getElementById('settingsModal');
+    const settingsModal = document.getElementById('settingsModal');
     const confirmationModal = document.getElementById('confirmationModal');
     const toast = document.getElementById('toast');
+    const monitoringStatus = document.getElementById('monitoringStatus');
+    const startMonitoringBtn = document.getElementById('startMonitoringBtn');
+    const stopMonitoringBtn = document.getElementById('stopMonitoringBtn');
 
-    // Toast notification
+    // Helper Functions
+    function formatNumber(num, decimals = 4) {
+        return typeof num === 'number' ? num.toFixed(decimals) : '0.0000';
+    }
+
+    function formatTimestamp(timestamp) {
+        return new Date(timestamp).toLocaleTimeString();
+    }
+
+    function formatDate(date) {
+        return new Date(date).toLocaleDateString();
+    }
+
+    // Toast Notifications
     function showToast(message, type = 'success') {
         toast.textContent = message;
         toast.className = `toast ${type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} border p-4`;
@@ -257,7 +355,7 @@
         }, 3000);
     }
 
-    // Loading indicator
+    // Loading Indicator
     function showLoading() {
         const loader = document.createElement('div');
         loader.className = 'loading-indicator p-4 bg-blue-50 border rounded mb-4 text-blue-700';
@@ -266,13 +364,190 @@
         return loader;
     }
 
-    // Confirmation Modal Functions
+    // API Calls
+    async function makeApiCall(url, options = {}) {
+        if (isLoading) return;
+        isLoading = true;
+        const loader = showLoading();
+        
+        try {
+            const response = await fetch(`${BASE_URL}${url}`, {
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                ...options,
+                body: options.body || undefined  // Add this line
+            });
+    
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'API request failed');
+            }
+    
+            const data = await response.json();
+            loader.remove();
+            displayResponse(data);
+            return data;
+        } catch (error) {
+            loader.remove();
+            const errorMessage = error.message;
+            displayResponse({
+                error: true,
+                message: errorMessage,
+                timestamp: new Date().toISOString()
+            });
+            showToast(errorMessage, 'error');
+            return { error: true, message: errorMessage };
+        } finally {
+            isLoading = false;
+        }
+    }
+
+    // Display Functions
+    function displayResponse(data) {
+        let content = '';
+
+        if (data.error) {
+            content += `
+                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+                    ${data.message || data.error}
+                </div>
+            `;
+        }
+
+        if (data.positions) {
+            content += displayPositions(data.positions);
+        }
+
+        if (data.analysis) {
+            content += displayAnalysis(data.analysis);
+        }
+
+        if (data.hedge_status) {
+            content += displayHedgeStatus(data.hedge_status);
+        }
+
+        content += `
+            <div class="mt-4 text-xs text-gray-500">
+                Response time: ${formatTimestamp(new Date())}
+            </div>
+            <pre class="mt-4 bg-gray-50 p-4 rounded text-sm overflow-auto">
+                ${JSON.stringify(data, null, 2)}
+            </pre>
+        `;
+
+        responseDisplay.innerHTML = content;
+    }
+
+    function displayPositions(positions) {
+        return `
+            <div class="space-y-4">
+                <h3 class="font-semibold text-lg">Positions (${positions.length})</h3>
+                ${positions.map(pos => `
+                    <div class="position-card">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <span class="font-medium">${pos.deal_id}</span>
+                                <span class="ml-2 text-sm text-gray-500">${pos.option_type}</span>
+                            </div>
+                            <span class="status-badge ${pos.is_active ? 'active' : 'inactive'}">
+                                ${pos.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                        </div>
+                        ${displayGreeks(pos.analysis?.delta?.greeks)}
+                        <div class="mt-2 text-sm text-gray-600">
+                            <div>Strike: ${formatNumber(pos.strike)}</div>
+                            <div>Premium: ${formatNumber(pos.premium)}</div>
+                            <div>Size: ${formatNumber(pos.size, 2)}</div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    function displayGreeks(greeks) {
+        if (!greeks) return '';
+        
+        return `
+            <div class="greeks-display">
+                <div class="text-sm">
+                    <span class="text-gray-500">Delta:</span>
+                    <span class="greek-value">${formatNumber(greeks.delta)}</span>
+                </div>
+                <div class="text-sm">
+                    <span class="text-gray-500">Gamma:</span>
+                    <span class="greek-value">${formatNumber(greeks.gamma)}</span>
+                </div>
+                <div class="text-sm">
+                    <span class="text-gray-500">Theta:</span>
+                    <span class="greek-value">${formatNumber(greeks.theta)}</span>
+                </div>
+                <div class="text-sm">
+                    <span class="text-gray-500">Vega:</span>
+                    <span class="greek-value">${formatNumber(greeks.vega)}</span>
+                </div>
+            </div>
+        `;
+    }
+
+    function displayAnalysis(analysis) {
+        return `
+            <div class="bg-blue-50 p-4 rounded-lg mb-4">
+                <h3 class="font-semibold mb-2">Position Analysis</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <span class="text-gray-600">Delta:</span>
+                        <span class="font-mono">${formatNumber(analysis.delta?.delta)}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">PnL:</span>
+                        <span class="font-mono">${formatNumber(analysis.metrics?.pnl)}</span>
+                    </div>
+                </div>
+                ${analysis.needs_hedge ? `
+                    <div class="mt-2 text-yellow-600 bg-yellow-50 p-2 rounded">
+                        Position needs hedging
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    function displayHedgeStatus(status) {
+        return `
+            <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                <h3 class="font-semibold mb-2">Hedge Status</h3>
+                <div class="space-y-2">
+                    <div>
+                        <span class="text-gray-600">Last Update:</span>
+                        <span>${formatTimestamp(status.last_update)}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Total Hedges:</span>
+                        <span>${status.total_hedges || 0}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Modal Management
+    function showSettingsModal() {
+        settingsModal.style.display = 'block';
+        loadSettingsIntoForm();
+    }
+
+    function hideSettingsModal() {
+        settingsModal.style.display = 'none';
+    }
+
     function showConfirmationModal(positionId, positionData) {
         const metricsDisplay = document.getElementById('confirmationMetrics');
         const metrics = {
-            delta: positionData.analysis.delta.delta.toFixed(4),
-            premium: positionData.position.premium,
-            pnl: positionData.analysis.metrics.pnl
+            delta: formatNumber(positionData.analysis?.delta?.delta),
+            premium: formatNumber(positionData.position?.premium),
+            pnl: formatNumber(positionData.analysis?.metrics?.pnl)
         };
         metricsDisplay.textContent = JSON.stringify(metrics, null, 2);
         
@@ -287,230 +562,20 @@
         pendingHedgeData = null;
     }
 
-    // API Calls
-    async function makeApiCall(url, options = {}) {
-        if (isLoading) return;
-        isLoading = true;
-        const loader = showLoading();
-        
-        const defaultOptions = {
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        };
-        
-        try {
-            const response = await axios({ 
-                url: `${BASE_URL}${url}`, 
-                ...defaultOptions,
-                ...options 
-            });
-            loader.remove();
-            displayResponse(response.data);
-            return response.data;
-        } catch (error) {
-            loader.remove();
-            const errorMessage = error.response?.data?.error || error.message;
-            displayResponse({
-                error: true,
-                message: errorMessage,
-                timestamp: new Date().toISOString()
-            });
-            showToast(errorMessage, 'error');
-            return { error: true, message: errorMessage };
-        } finally {
-            isLoading = false;
-        }
-    }
-
-    function displayResponse(data) {
-        const timestamp = new Date().toLocaleTimeString();
-        let content = `
-            <div class="p-4 border rounded bg-white mb-4 shadow-sm">
-                <div class="flex justify-between items-center text-sm text-gray-600 mb-2">
-                    <span>${timestamp}</span>
-                    <span class="text-xs">${data.status || ''}</span>
-                </div>
-            `;
-
-        if (data.error) {
-            content += `
-                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
-                    ${data.message || data.error}
-                </div>
-            `;
-        }
-
-        if (data.greeks) {
-            content += `
-                <div class="mb-4 p-4 bg-blue-50 rounded">
-                    <h3 class="font-semibold mb-2">Greeks:</h3>
-                    <div class="grid grid-cols-2 gap-2 text-sm">
-                        <div>Delta: ${data.greeks.delta.toFixed(4)}</div>
-                        <div>Gamma: ${data.greeks.gamma.toFixed(4)}</div>
-                        <div>Theta: ${data.greeks.theta.toFixed(4)}</div>
-                        <div>Vega: ${data.greeks.vega.toFixed(4)}</div>
-                    </div>
-                </div>
-            `;
-        }
-
-        // Format data for better readability
-        const formattedData = typeof data === 'object' ? JSON.stringify(data, null, 2) : data;
-        content += `
-                <pre class="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded">${formattedData}</pre>
-            </div>
-        `;
-
-        responseDisplay.innerHTML = content;
-    }
-
-    // Modal Management
-    function showModal() {
-        modal.style.display = 'block';
-        loadSettingsIntoForm();
-    }
-    
-    function hideModal() {
-        modal.style.display = 'none';
-    }
-
-    // Hedging Functions
-    async function proceedWithHedging() {
-        if (!pendingHedgePosition) return;
-        
-        const response = await makeApiCall(`/hedge/${pendingHedgePosition}`, {
-            method: 'POST',
-            data: { 
-                force: true,
-                ignore_threshold: true
-            }
-        });
-
-        hideConfirmationModal();
-
-        if (!response.error) {
-            showToast('Manual hedge executed successfully');
-            // Refresh hedge status
-            await makeApiCall('/hedge/status');
-        }
-    }
-
-    // Settings Management
-    function loadSettingsIntoForm() {
-        document.getElementById('minHedgeSize').value = currentSettings.min_hedge_size || DEFAULT_SETTINGS.min_hedge_size;
-        document.getElementById('maxHedgeSize').value = currentSettings.max_hedge_size || DEFAULT_SETTINGS.max_hedge_size;
-        document.getElementById('hedgeInterval').value = currentSettings.hedge_interval || DEFAULT_SETTINGS.hedge_interval;
-        document.getElementById('deltaThreshold').value = currentSettings.delta_threshold || DEFAULT_SETTINGS.delta_threshold;
-    }
-
-    // Event Listeners
-    document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
-        const positionId = document.getElementById('hedgePositionId').value;
-        if (!positionId) {
-            showToast('Please enter a Position ID', 'error');
-            return;
-        }
-
-        // First check position status
-        const checkResponse = await makeApiCall(`/positions/${positionId}`);
-        if (checkResponse.error) return;
-
-        const needsHedge = checkResponse.analysis?.delta?.needs_hedge;
-        
-        if (!needsHedge) {
-            // Show confirmation modal if threshold not reached
-            showConfirmationModal(positionId, checkResponse);
-        } else {
-            // Proceed with normal hedging if threshold reached
-            await makeApiCall(`/hedge/${positionId}`, {
-                method: 'POST',
-                data: { force: true }
-            });
-        }
-    });
-
-    document.getElementById('confirmHedgeBtn').addEventListener('click', proceedWithHedging);
-
-    document.getElementById('settingsForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        
-        const settings = {
-            min_hedge_size: parseFloat(document.getElementById('minHedgeSize').value),
-            max_hedge_size: parseFloat(document.getElementById('maxHedgeSize').value),
-            hedge_interval: parseInt(document.getElementById('hedgeInterval').value),
-            delta_threshold: parseFloat(document.getElementById('deltaThreshold').value)
-        };
-
-        if (settings.min_hedge_size >= settings.max_hedge_size) {
-            showToast('Minimum hedge size must be less than maximum hedge size', 'error');
-            return;
-        }
-
-        if (settings.hedge_interval < 1) {
-            showToast('Hedge interval must be at least 1 second', 'error');
-            return;
-        }
-
-        const response = await makeApiCall('/settings', {
-            method: 'POST',
-            data: settings
-        });
-
-        if (!response.error) {
-            currentSettings = settings;
-            hideModal();
-            showToast('Settings updated successfully');
-        }
-    });
-
-    // Initialize other event listeners
-    document.getElementById('listPositionsBtn').addEventListener('click', () => makeApiCall('/positions'));
-    document.getElementById('getSoldPositionsBtn').addEventListener('click', () => makeApiCall('/positions/sold'));
-    document.getElementById('getPositionBtn').addEventListener('click', () => {
-        const positionId = document.getElementById('positionId').value;
-        if (!positionId) {
-            showToast('Please enter a Position ID', 'error');
-            return;
-        }
-        makeApiCall(`/positions/${positionId}`);
-    });
-    document.getElementById('getAnalyticsBtn').addEventListener('click', () => {
-        const positionId = document.getElementById('positionId').value;
-        if (!positionId) {
-            showToast('Please enter a Position ID', 'error');
-            return;
-        }
-        makeApiCall(`/analytics/${positionId}`);
-    });
-    document.getElementById('hedgeAllPositionsBtn').addEventListener('click', () => {
-        makeApiCall('/hedge/all', {
-            method: 'POST',
-            data: { force: true }
-        }).then(response => {
-            if (!response.error) {
-                showToast('Hedging all positions');
-            }
-        });
-    });
-    document.getElementById('getHedgeStatusBtn').addEventListener('click', () => makeApiCall('/hedge/status'));
-    document.getElementById('getSettingsBtn').addEventListener('click', () => makeApiCall('/settings'));
-    document.getElementById('updateSettingsBtn').addEventListener('click', showModal);
-    document.getElementById('clearResponseBtn').addEventListener('click', () => {
-        responseDisplay.innerHTML = '';
-        showToast('Response cleared');
-    });
-
     // Monitoring Functions
     function startMonitoring() {
-        if (monitoringInterval) return;
+        if (monitoringInterval) {
+            showToast('Monitoring is already active');
+            return;
+        }
         
-        updateMonitoringStatus(true);
-        
-        monitoringInterval = setInterval(async () => {
+        const interval = setInterval(async () => {
             await makeApiCall('/hedge/status');
-        }, (currentSettings.hedge_interval || DEFAULT_SETTINGS.hedge_interval) * 1000);
+            await makeApiCall('/positions');
+        }, currentSettings.hedge_interval * 1000);
         
+        monitoringInterval = interval;
+        updateMonitoringStatus(true);
         showToast('Monitoring started');
     }
 
@@ -524,23 +589,244 @@
     }
 
     function updateMonitoringStatus(isActive) {
-        const statusElement = document.getElementById('monitoringStatus');
-        statusElement.textContent = `Monitoring: ${isActive ? 'Active' : 'Inactive'}`;
-        statusElement.className = `text-sm ${isActive ? 'text-green-600' : 'text-gray-600'} text-center mt-2 p-2 rounded ${isActive ? 'bg-green-50' : 'bg-gray-50'}`;
+        const statusBadge = monitoringStatus.querySelector('span') || document.createElement('span');
+        statusBadge.className = `status-badge ${isActive ? 'active' : 'inactive'}`;
+        statusBadge.textContent = isActive ? 'Active' : 'Inactive';
+        startMonitoringBtn.disabled = isActive;
+        stopMonitoringBtn.disabled = !isActive;
     }
 
-    // Close modals on outside click
-    window.onclick = (event) => {
-        if (event.target === modal) {
-            hideModal();
+    // Settings Management
+    async function loadSettings() {
+        const response = await makeApiCall('/settings');
+        if (!response.error) {
+            currentSettings = response.settings;
+            loadSettingsIntoForm();
         }
-        if (event.target === confirmationModal) {
-            hideConfirmationModal();
-        }
-    };
+    }
 
-    // Initialization
-    loadSettings().then(() => {
+    function loadSettingsIntoForm() {
+        document.getElementById('minHedgeSize').value = currentSettings.min_hedge_size;
+        document.getElementById('maxHedgeSize').value = currentSettings.max_hedge_size;
+        document.getElementById('hedgeInterval').value = currentSettings.hedge_interval;
+        document.getElementById('deltaThreshold').value = currentSettings.delta_threshold;
+    }
+
+    // Event Listeners
+    document.getElementById('listPositionsBtn').addEventListener('click', () => makeApiCall('/positions'));
+    document.getElementById('getSoldPositionsBtn').addEventListener('click', () => makeApiCall('/positions/sold'));
+    document.getElementById('getPositionBtn').addEventListener('click', () => {
+        const positionId = document.getElementById('positionId').value;
+        if (!positionId) {
+            showToast('Please enter a Position ID', 'error');
+            return;
+        }
+        makeApiCall(`/positions/${positionId}`);
+    });
+
+    document.getElementById('startMonitoringBtn').addEventListener('click', startMonitoring);
+    document.getElementById('stopMonitoringBtn').addEventListener('click', stopMonitoring);
+    document.getElementById('getSettingsBtn').addEventListener('click', () => makeApiCall('/settings'));
+    document.getElementById('updateSettingsBtn').addEventListener('click', showSettingsModal);
+    document.getElementById('clearResponseBtn').addEventListener('click', () => {
+        responseDisplay.innerHTML = '';
+        showToast('Response cleared');
+    });
+
+    async function performHedge(positionId, reason, additionalData = {}) {
+        try {
+            const response = await makeApiCall(`/hedge/${positionId}`, { 
+                method: 'POST',
+                body: JSON.stringify({
+                    position_id: positionId,
+                    reason: reason,
+                    ...additionalData
+                })
+            });
+    
+            // Handle different response statuses
+            switch (response.status) {
+                case 'hedged':
+                    showToast('Position hedged successfully', 'success');
+                    break;
+                case 'market_data_error':
+                    showToast(`Market data unavailable for ${response.epic}`, 'warning');
+                    // Optionally log or handle differently
+                    break;
+                case 'hedge_creation_failed':
+                    showToast('Failed to create hedge position', 'error');
+                    break;
+                default:
+                    if (response.error) {
+                        showToast(`Hedge failed: ${response.error}`, 'error');
+                    }
+            }
+    
+            return response;
+        } catch (error) {
+            console.error('Hedge performance error:', error);
+            showToast(`Hedging error: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+document.getElementById('hedgePositionBtn').addEventListener('click', async () => {
+    const hedgePositionId = document.getElementById('hedgePositionId').value;
+    if (!hedgePositionId) {
+        showToast('Please enter a Position ID to hedge', 'error');
+        return;
+    }
+
+    try {
+        const positionResponse = await makeApiCall(`/positions/${hedgePositionId}`);
+        
+        if (positionResponse.analysis?.needs_hedge || 
+            Math.abs(positionResponse.analysis?.delta?.delta) > currentSettings.delta_threshold) {
+            // Show confirmation modal for high-risk positions
+            showConfirmationModal(hedgePositionId, positionResponse);
+        } else {
+            // Proceed with hedging directly if below threshold
+            await makeApiCall(`/hedge/${hedgePositionId}`, { 
+                method: 'POST',
+                body: JSON.stringify({
+                    position_id: hedgePositionId,
+                    reason: 'Manual hedge'
+                })
+            });
+        }
+    } catch (error) {
+        showToast('Failed to hedge position', 'error');
+    }
+});
+
+document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
+    try {
+        const response = await makeApiCall('/hedge/all', { 
+            method: 'POST',
+            body: JSON.stringify({}) // Empty body if no parameters needed
+        });
+        if (!response.error) {
+            showToast('All positions hedged successfully');
+        }
+    } catch (error) {
+        showToast('Failed to hedge all positions', 'error');
+    }
+});
+
+document.getElementById('confirmHedgeBtn').addEventListener('click', async () => {
+    if (!pendingHedgePosition) {
+        showToast('No pending hedge', 'error');
+        return;
+    }
+
+    try {
+        await makeApiCall(`/hedge/${pendingHedgePosition}`, { 
+            method: 'POST',
+            body: JSON.stringify({
+                position_id: pendingHedgePosition,
+                reason: 'High delta risk confirmation'
+            })
+        });
+        hideConfirmationModal();
+        showToast('Position hedged successfully');
+    } catch (error) {
+        showToast('Failed to hedge position', 'error');
+    }
+});// Hedging Event Listeners
+Copydocument.getElementById('hedgePositionBtn').addEventListener('click', async () => {
+    const hedgePositionId = document.getElementById('hedgePositionId').value;
+    if (!hedgePositionId) {
+        showToast('Please enter a Position ID to hedge', 'error');
+        return;
+    }
+
+    try {
+        // Add loading state
+        disableHedgeButton();
+
+        const positionResponse = await makeApiCall(`/positions/${hedgePositionId}`);
+        
+        // Robust null checking and default values
+        const deltaThreshold = currentSettings?.delta_threshold || 0.5;
+        const analysis = positionResponse?.analysis || {};
+        const delta = analysis?.delta?.delta ?? 0;
+
+        // More comprehensive hedge decision logic
+        const needsHedge = 
+            analysis.needs_hedge === true || 
+            Math.abs(delta) > deltaThreshold;
+
+        if (needsHedge) {
+            // Show confirmation modal for high-risk positions
+            showConfirmationModal(hedgePositionId, positionResponse);
+        } else {
+            // Proceed with hedging directly if below threshold
+            await performHedge(hedgePositionId, 'Manual hedge');
+        }
+    } catch (error) {
+        console.error('Hedge position error:', error);
+        showToast(`Failed to hedge position: ${error.message || 'Unknown error'}`, 'error');
+    } finally {
+        // Ensure button is re-enabled
+        enableHedgeButton();
+    }
+});
+
+document.getElementById('hedgeAllPositionsBtn').addEventListener('click', async () => {
+    try {
+        // Add loading state
+        disableHedgeAllButton();
+
+        const response = await makeApiCall('/hedge/all', { 
+            method: 'POST',
+            body: JSON.stringify({
+                reason: 'Bulk hedge operation'
+            })
+        });
+
+        // More robust response handling
+        if (response && !response.error) {
+            showToast('All positions hedged successfully', 'success');
+        } else {
+            showToast(response?.error || 'Failed to hedge all positions', 'error');
+        }
+    } catch (error) {
+        console.error('Hedge all positions error:', error);
+        showToast(`Failed to hedge all positions: ${error.message || 'Unknown error'}`, 'error');
+    } finally {
+        // Ensure button is re-enabled
+        enableHedgeAllButton();
+    }
+});
+
+document.getElementById('confirmHedgeBtn').addEventListener('click', async () => {
+    if (!pendingHedgePosition) {
+        showToast('No pending hedge', 'error');
+        return;
+    }
+
+    try {
+        // Disable confirm button during operation
+        disableConfirmHedgeButton();
+
+        // Extract metrics safely
+        const metrics = pendingHedgeData?.analysis?.metrics || {};
+
+        await performHedge(pendingHedgePosition, 'High delta risk confirmation', metrics);
+        
+        // Close modal and show success
+        hideConfirmationModal();
+        showToast('Position hedged successfully', 'success');
+    } catch (error) {
+        console.error('Confirm hedge error:', error);
+        showToast(`Failed to hedge position: ${error.message || 'Unknown error'}`, 'error');
+    } finally {
+        // Ensure confirm button is re-enabled
+        enableConfirmHedgeButton();
+    }
+});
+    // Initialize
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadSettings();
         updateMonitoringStatus(false);
     });
 
@@ -550,4 +836,4 @@
     });
     </script>
 </body>
-</html
+</html>

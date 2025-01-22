@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -8,7 +9,6 @@ import requests
 from dotenv import load_dotenv
 
 from app.models.enums import OrderDirection, OrderType
-from app.services.mock_market import MockMarketData
 from config.settings import HEDGE_SETTINGS as _hedge_settings
 
 load_dotenv()
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class IGClient:
-    def __init__(self, use_mock: bool = False):
+    def __init__(self):
         """Initialize IGClient with configuration"""
         self.session = requests.Session()
         self.base_url = "https://demo-api.ig.com/gateway/deal"
@@ -29,6 +29,7 @@ class IGClient:
 
         # Account ID
         self.account_id = os.getenv("IG_OPTIONS_ACCOUNT")
+        self.account_id = os.getenv("IG_CFD_ACCOUNT")
         logger.info(f"Initializing IG Client with account ID: {self.account_id}")
 
         # Authentication tokens
@@ -37,16 +38,13 @@ class IGClient:
         self.token_expiry: Optional[datetime] = None
 
         # Rate limiting
+        self.request_delay = 1.0
         self.last_request_time = 0
+        self.max_retries = 3
+        self.retry_delay = 2
         self.request_interval = float(_hedge_settings.get("api_request_interval", 1.0))
 
-        # Mock data handling
-        self.use_mock = use_mock
-        self.mock_data = MockMarketData() if use_mock else None
-
-        # Authenticate if not using mock
-        if not use_mock:
-            self.login()
+        self.login()
 
     def _validate_credentials(self) -> None:
         """Validate API credentials"""
@@ -105,9 +103,22 @@ class IGClient:
             return True
         return datetime.now() >= self.token_expiry
 
-    def login(self) -> bool:
-        """Authenticate with IG API"""
+    def login(self, account_type: str = "options") -> bool:
+        """
+        Authenticate with IG API
+
+        Args:
+            account_type (str): 'options' or 'cfd' to determine which account to use
+        """
         try:
+            # Determine the appropriate account ID
+            if account_type == "options":
+                self.account_id = os.getenv("IG_OPTIONS_ACCOUNT")
+            elif account_type == "cfd":
+                self.account_id = os.getenv("IG_CFD_ACCOUNT")
+            else:
+                raise ValueError(f"Invalid account type: {account_type}")
+
             self._validate_credentials()
 
             headers = {
@@ -131,7 +142,9 @@ class IGClient:
                 self.cst = response.headers.get("CST")
                 self.token_expiry = datetime.now() + timedelta(hours=6)
 
-                logger.info("Successfully logged in to IG API")
+                logger.info(
+                    f"Successfully logged in to IG API with the user account {self.username} and account number {self.account_id}"
+                )
 
                 # Get available accounts
                 accounts_response = self.session.get(
@@ -228,9 +241,6 @@ class IGClient:
             return position_data
 
     def get_positions(self) -> Dict:
-        """Get all positions from IG API"""
-        if self.use_mock:
-            return {"positions": []}
 
         try:
             logger.info(f"Fetching positions for account: {self.account_id}")
@@ -278,8 +288,6 @@ class IGClient:
 
     def get_market_data(self, epic: str) -> Dict:
         """Get market data for an instrument"""
-        if self.use_mock:
-            return self.mock_data.get_market_data() if self.mock_data else {}
 
         try:
             self._rate_limit()
@@ -317,15 +325,14 @@ class IGClient:
                 logger.debug(f"Market data received for {epic}: {market_data}")
                 return market_data
 
-            logger.warning(f"Failed to get market data: {response.text}")
-            return self.mock_data.get_market_data() if self.mock_data else {}
+            error_msg = self._parse_error_response(response)
+            logger.error(f"Failed to get market data for {epic}: {error_msg}")
+            return {"error": error_msg}
 
-        except (ValueError, TypeError) as e:
-            logger.error(f"Error parsing market data: {str(e)}")
-            return self.mock_data.get_market_data() if self.mock_data else {}
-        except Exception as e:
-            logger.error(f"Error getting market data: {str(e)}")
-            return self.mock_data.get_market_data() if self.mock_data else {}
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Failed to get market data for {epic}: {str(e)}"
+            logger.error(error_msg)
+            return {"error": error_msg}
 
     def create_position(
         self,
@@ -334,90 +341,130 @@ class IGClient:
         size: float,
         order_type: OrderType = OrderType.MARKET,
         limit_level: Optional[float] = None,
+        time_in_force: str = "EXECUTE_AND_ELIMINATE",
     ) -> Dict:
-        """Create a new position with proper validation"""
         try:
-            logger.info(
-                f"Creating position on account {self.account_id}: {epic} {direction.value} {size}"
-            )
+            # Determine the CFD account ID
+            cfd_account_id = os.getenv("IG_CFD_ACCOUNT", self.account_id)
 
-            # Get current market data for price levels
+            logger.info(f"Using account ID for position creation: {cfd_account_id}")
+
+            # Robust size validation and formatting
+            try:
+                # Ensure size is a positive float
+                size = float(abs(size))  # Take absolute value to handle negative inputs
+
+                # Apply minimum size constraint
+                min_trade_size = 0.01  # Minimum trade size
+                size = max(size, min_trade_size)
+
+                # Ensure size is formatted as a string with 2 decimal places
+                formatted_size = f"{size:.2f}"
+            except (ValueError, TypeError) as size_error:
+                logger.error(f"Invalid size input: {size}, Error: {str(size_error)}")
+                return {
+                    "error": "Position size must be positive",
+                    "details": {"original_size": size, "error": str(size_error)},
+                }
+
+            # Get market data for price validation
             market_data = self.get_market_data(epic)
             if not market_data:
                 return {"error": "Failed to get market data"}
 
             current_price = market_data.get("price", 0)
-            logger.debug(f"Current market price for {epic}: {current_price}")
+            if current_price <= 0:
+                return {"error": "Invalid market price"}
 
-            # Try MARKET order first
+            # Base order parameters
+            base_order = {
+                "epic": epic,
+                "expiry": "-",
+                "direction": direction.value,
+                "size": formatted_size,  # Use formatted size
+                "orderType": order_type.value,
+                "currencyCode": "GBP",  # Required field
+                "forceOpen": True,  # Required for limit orders
+                "guaranteedStop": False,
+                "timeInForce": time_in_force,
+            }
+
+            # Handle different order types
             if order_type == OrderType.MARKET:
-                logger.debug("Attempting MARKET order")
-                # Base position data for MARKET order
-                data = {
-                    "epic": epic,
-                    "expiry": "-",
-                    "direction": direction.value,
-                    "size": str(size),
-                    "currencyCode": "GBP",
-                    "forceOpen": True,
-                    "orderType": OrderType.MARKET.value,
-                    "timeInForce": "FILL_OR_KILL",
-                    "guaranteedStop": False,
-                }
-
-                response = self.session.post(
-                    f"{self.base_url}/positions/otc",
-                    headers=self.get_headers(),
-                    json=data,
-                    timeout=30,
-                )
-
-                result = self._handle_response(response, "Create position")
-
-                # If market order not supported, switch to LIMIT
-                if "error" in result and "market-orders.not-supported" in result.get(
-                    "error", ""
-                ):
-                    logger.info("Market orders not supported, switching to LIMIT order")
-                    order_type = OrderType.LIMIT
-                else:
-                    return result
-
-            # Handle LIMIT order
-            if order_type == OrderType.LIMIT:
-                logger.debug("Using LIMIT order")
+                base_order.pop("level", None)
+                base_order.pop("quoteId", None)
+            elif order_type == OrderType.LIMIT:
                 price_level = limit_level or current_price
+                base_order["level"] = str(price_level)
+                base_order.pop("quoteId", None)
+            elif order_type == OrderType.QUOTE:  # type: ignore
+                return {"error": "Quote orders not supported"}
 
-                # Create LIMIT order data
-                data = {
-                    "epic": epic,
-                    "expiry": "-",
-                    "direction": direction.value,
-                    "size": str(size),
-                    "currencyCode": "GBP",
-                    "forceOpen": True,
-                    "orderType": OrderType.LIMIT.value,
-                    "level": str(price_level),
-                    "timeInForce": "FILL_OR_KILL",
-                    "guaranteedStop": False,
+            logger.info(f"Sending order: {base_order}")
+            response = self.session.post(
+                f"{self.base_url}/positions/otc",
+                headers=self.get_headers(),
+                json=base_order,
+                timeout=30,
+            )
+
+            # Detailed response handling
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"Order created successfully: {result}")
+
+                if "dealReference" in result:
+                    return {
+                        "dealId": result["dealReference"],
+                        "dealReference": result["dealReference"],
+                    }
+
+                logger.error(f"No dealReference found in successful response: {result}")
+                return {
+                    "error": "Position creation succeeded but no deal reference found",
+                    "raw_result": result,
                 }
 
-                logger.debug(f"Sending LIMIT order with price level: {price_level}")
-                response = self.session.post(
-                    f"{self.base_url}/positions/otc",
-                    headers=self.get_headers(),
-                    json=data,
-                    timeout=30,
+            # Detailed error parsing
+            try:
+                error_data = response.json()
+                error_code = error_data.get("errorCode", "Unknown error")
+                error_details = {
+                    "status_code": response.status_code,
+                    "error_code": error_code,
+                    "raw_response": response.text,
+                    "order_details": base_order,
+                }
+                logger.error(
+                    f"Order creation failed: {json.dumps(error_details, indent=2)}"
                 )
-
-                result = self._handle_response(response, "Create limit position")
-                return result
-
-            return {"error": "Unknown order type"}
+                return {
+                    "error": f"Position creation failed: {error_code}",
+                    "details": error_details,
+                }
+            except Exception as parsing_error:
+                logger.error(f"Error parsing error response: {str(parsing_error)}")
+                return {
+                    "error": f"Position creation failed with status {response.status_code}",
+                    "raw_response": response.text,
+                }
 
         except Exception as e:
-            logger.error(f"Failed to create position: {str(e)}")
-            return {"error": str(e)}
+            logger.error(f"Unexpected error creating position: {str(e)}", exc_info=True)
+            return {"error": "Position creation failed", "details": str(e)}
+
+    def _parse_error_response(self, response: requests.Response) -> str:
+        """Parse error response from IG API"""
+        try:
+            error_data = response.json()
+            if "errorCode" in error_data:
+                return error_data["errorCode"]
+            elif "error" in error_data:
+                return error_data["error"]
+            else:
+                return f"HTTP {response.status_code}: {response.text}"
+        except Exception:
+            return f"HTTP {response.status_code}: {response.text}"
 
     def _rate_limit(self) -> None:
         """Implement rate limiting"""
@@ -443,3 +490,69 @@ class IGClient:
             "Content-Type": "application/json",
             "Accept": "application/json; charset=UTF-8",
         }
+
+    def create_hedge_position(
+        self, epic: str, direction: OrderDirection, size: float
+    ) -> Dict:
+        """Create a CFD hedge position with robust account switching"""
+        try:
+            # Logging the original epic and input parameters for debugging
+            logger.info(f"Creating hedge position:")
+            logger.info(f"Original epic: {epic}")
+            logger.info(f"Direction: {direction}")
+            logger.info(f"Size: {size}")
+
+            epic = "IX.D.SPTRD.IFS.IP"
+            # Ensure we're using the CFD account
+            cfd_account_id = os.getenv("IG_CFD_ACCOUNT")
+            if not cfd_account_id:
+                return {"error": "CFD account ID not configured"}
+
+            # Temporarily switch to CFD account
+            try:
+                # Login with CFD account
+                if not self.login(account_type="cfd"):
+                    return {"error": "Failed to authenticate CFD account"}
+
+                # Create CFD position
+                result = self.create_position(
+                    epic=epic,
+                    direction=direction,
+                    size=size,
+                    order_type=OrderType.MARKET,
+                )
+
+                # Switch back to options account
+                self.login(account_type="options")
+
+                # Log the result
+                if "dealId" in result or "dealReference" in result:
+                    logger.info(f"Hedge position created successfully: {result}")
+                    return result
+                else:
+                    logger.error(f"Failed to create hedge position: {result}")
+                    return {
+                        "error": "Failed to create hedge position",
+                        "details": result,
+                    }
+
+            except Exception as e:
+                # Ensure we switch back to options account even if an error occurs
+                try:
+                    self.login(account_type="options")
+                except Exception:
+                    logger.error(
+                        "Failed to switch back to options account after hedge error"
+                    )
+
+                logger.error(f"Comprehensive error creating hedge position: {str(e)}")
+                return {
+                    "error": "Comprehensive hedge position creation error",
+                    "details": str(e),
+                }
+
+        except Exception as e:
+            logger.error(
+                f"Unexpected error creating hedge position: {str(e)}", exc_info=True
+            )
+            return {"error": "Hedge position creation failed", "details": str(e)}
