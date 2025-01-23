@@ -120,7 +120,18 @@ position_data = {
     "time_to_expiry": 0.25
 }
 position_id = hedger.create_position(position_data)
-```
+``
+## Deployment to aws ec2
+
+1. Create an EC2 instance
+2. Connect to the instance using SSH
+3. Install Git and clone the repository
+4. Install Python and the required packages
+5. Run the Flask server
+6. Access the application using the public IP address
+
+`
+
 
 ## 🛡️ Error Handling
 
