@@ -12,7 +12,7 @@ instance/*
 __pycache__/
 *.py[cod]
 *$py.class
-
+deltahedge
 # C extensions
 *.so
 
