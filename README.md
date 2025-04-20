@@ -110,7 +110,7 @@ Open the `index.html` file in a modern web browser.
 ## 🔍 Example Usage
 
 
-# Create a new option position
+## Create a new option position
 position_data = {
     "epic": "CS.D.EURUSD.TODAY.IP",
     "strike": 1.2000,
