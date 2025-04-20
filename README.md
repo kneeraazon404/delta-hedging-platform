@@ -109,7 +109,7 @@ Open the `index.html` file in a modern web browser.
 
 ## 🔍 Example Usage
 
-```python
+
 # Create a new option position
 position_data = {
     "epic": "CS.D.EURUSD.TODAY.IP",
