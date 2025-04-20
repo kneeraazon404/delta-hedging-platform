@@ -158,10 +158,6 @@ position_id = hedger.create_position(position_data)
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
-## 📞 Contact
-
-Nirajan Karki - <kneeraazon@gmail.com>
-
 ---
 
 **Disclaimer**: This is a simulation tool. Always consult financial professionals before making investment decisions.
